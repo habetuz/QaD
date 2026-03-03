@@ -19,7 +19,7 @@ func NewServer() *Server {
 	return &Server{}
 }
 
-func (server *Server) Read(context.Context, *proto_gen.Key) (*proto_gen.Value, error) {
+func (server *Server) Read(ctx context.Context, key *proto_gen.Key) (*proto_gen.Value, error) {
 	return nil, status.Error(codes.Unimplemented, "Not implemented")
 }
 
