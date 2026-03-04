@@ -39,12 +39,18 @@ func (s *FIFOStorage) Write(key string, value []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If key already exists, remove its old size contribution.
+	// If key already exists, subtract its old size and remove it from the
+	// order queue so it gets re-inserted at the back (refreshed position).
 	if old, ok := s.storage[key]; ok {
 		s.curSize -= len(old)
-	} else {
-		s.order = append(s.order, key)
+		for i, k := range s.order {
+			if k == key {
+				s.order = append(s.order[:i], s.order[i+1:]...)
+				break
+			}
+		}
 	}
+	s.order = append(s.order, key)
 
 	s.storage[key] = value
 	s.curSize += len(value)

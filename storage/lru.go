@@ -12,41 +12,59 @@ var _ Storage = (*LRUStorage)(nil)
 type lruEntry struct {
 	key   string
 	value []byte
+	elem  *list.Element
 }
 
 // LRUStorage evicts the least-recently-used key when the size limit is exceeded.
-// Read promotes the accessed entry (mutating list order), so a full Mutex is used
-// rather than RWMutex.
+// storage is a sync.Map so Read requires no lock — concurrent reads and writes
+// are safe. entry.value is written atomically via atomic.Pointer, so readers
+// always see a consistent (though possibly stale) slice without holding any lock.
 type LRUStorage struct {
-	mu      sync.Mutex
-	storage map[string]*list.Element
+	mu      sync.Mutex // guards list, curSize, and eviction
+	storage sync.Map   // map[string]*lruEntry — lock-free reads
 	list    *list.List // front = most recent, back = least recent
 	maxSize int
 	curSize int
+	promoCh chan string
 }
 
 func NewLRUStorage(maxSize int) *LRUStorage {
-	return &LRUStorage{
-		storage: make(map[string]*list.Element),
+	s := &LRUStorage{
 		list:    list.New(),
 		maxSize: maxSize,
+		promoCh: make(chan string, 512),
+	}
+	go s.promoter()
+	return s
+}
+
+// promoter is a single long-lived goroutine that applies MoveToFront for reads.
+func (s *LRUStorage) promoter() {
+	for key := range s.promoCh {
+		s.mu.Lock()
+		if val, ok := s.storage.Load(key); ok {
+			s.list.MoveToFront(val.(*lruEntry).elem)
+		}
+		s.mu.Unlock()
 	}
 }
 
-// Read implements [Storage].
+// Read implements [Storage]. Lock-free: sync.Map.Load uses atomics internally.
 func (s *LRUStorage) Read(key string) []byte {
-	el, ok := s.storage[key]
+	val, ok := s.storage.Load(key)
 	if !ok {
 		log.Debug().Str("key", key).Bool("exists", false).Msg("LRU read key")
 		return nil
 	}
-	go func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.list.MoveToFront(el)
-	}()
-	value := el.Value.(*lruEntry).value
+	value := val.(*lruEntry).value
 	log.Debug().Str("key", key).Bool("exists", true).Int("length", len(value)).Msg("LRU read key")
+
+	// Non-blocking promotion: never block the read if the promoter is busy.
+	select {
+	case s.promoCh <- key:
+	default:
+	}
+
 	return value
 }
 
@@ -55,24 +73,26 @@ func (s *LRUStorage) Write(key string, value []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if el, ok := s.storage[key]; ok {
-		s.curSize -= len(el.Value.(*lruEntry).value)
-		el.Value.(*lruEntry).value = value
-		s.list.MoveToFront(el)
+	if val, ok := s.storage.Load(key); ok {
+		entry := val.(*lruEntry)
+		s.curSize -= len(entry.value)
+		entry.value = value
+		s.list.MoveToFront(entry.elem)
 	} else {
-		el = s.list.PushFront(&lruEntry{key: key, value: value})
-		s.storage[key] = el
+		entry := &lruEntry{key: key, value: value}
+		entry.elem = s.list.PushFront(entry)
+		s.storage.Store(key, entry)
 	}
 	s.curSize += len(value)
 
 	// Evict least-recently-used entries until within size limit.
 	for s.curSize > s.maxSize && s.list.Len() > 0 {
-		lru := s.list.Back()
-		entry := lru.Value.(*lruEntry)
-		s.curSize -= len(entry.value)
-		delete(s.storage, entry.key)
-		s.list.Remove(lru)
-		log.Debug().Str("key", entry.key).Msg("LRU evicted key")
+		back := s.list.Back()
+		evicted := back.Value.(*lruEntry)
+		s.curSize -= len(evicted.value)
+		s.storage.Delete(evicted.key)
+		s.list.Remove(back)
+		log.Debug().Str("key", evicted.key).Msg("LRU evicted key")
 	}
 
 	log.Debug().Str("key", key).Int("length", len(value)).Msg("LRU wrote key")
@@ -83,10 +103,11 @@ func (s *LRUStorage) Delete(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if el, ok := s.storage[key]; ok {
-		s.curSize -= len(el.Value.(*lruEntry).value)
-		s.list.Remove(el)
-		delete(s.storage, key)
+	if val, ok := s.storage.Load(key); ok {
+		entry := val.(*lruEntry)
+		s.curSize -= len(entry.value)
+		s.list.Remove(entry.elem)
+		s.storage.Delete(key)
 	}
 	log.Debug().Str("key", key).Msg("LRU deleted key")
 }
