@@ -14,11 +14,21 @@ type Member struct {
 	Host string
 }
 
+type EvictionAlgorithm string
+
+const (
+	FIFO EvictionAlgorithm = "FIFO"
+	LRU  EvictionAlgorithm = "LRU"
+	NONE   EvictionAlgorithm = "NONE"
+)
+
 type Config struct {
-	LogLevel zerolog.Level
-	HTTPPort uint32
-	GRPCPort uint32
-	Members  []Member
+	LogLevel          zerolog.Level
+	HTTPPort          uint32
+	GRPCPort          uint32
+	Members           []Member
+	StorageSize       int
+	EvictionAlgorithm EvictionAlgorithm
 }
 
 func Load() (*Config, error) {
@@ -51,6 +61,23 @@ func Load() (*Config, error) {
 		cfg.GRPCPort = uint32(port)
 	}
 
+	if v := os.Getenv("STORAGE_SIZE"); v != "" {
+		size, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid STORAGE_SIZE %q: %w", v, err)
+		}
+		cfg.StorageSize = size
+	}
+
+	if v := os.Getenv("EVICTION_ALGORITHM"); v != "" {
+		switch EvictionAlgorithm(v) {
+		case FIFO, LRU:
+			cfg.EvictionAlgorithm = EvictionAlgorithm(v)
+		default:
+			return nil, fmt.Errorf("invalid EVICTION_ALGORITHM %q: must be one of FIFO, LRU", v)
+		}
+	}
+
 	for i := 0; ; i++ {
 		name := os.Getenv(fmt.Sprintf("MEMBER_%d_NAME", i))
 		host := os.Getenv(fmt.Sprintf("MEMBER_%d_HOST", i))
@@ -65,8 +92,10 @@ func Load() (*Config, error) {
 
 func defaultConfig() Config {
 	return Config{
-		LogLevel: zerolog.InfoLevel,
-		HTTPPort: 8080,
-		GRPCPort: 9876,
+		LogLevel:          zerolog.InfoLevel,
+		HTTPPort:          8080,
+		GRPCPort:          9876,
+		StorageSize:       1e+9,
+		EvictionAlgorithm: FIFO,
 	}
 }

@@ -42,7 +42,16 @@ func main() {
 
 	zerolog.SetGlobalLevel(cfg.LogLevel)
 
-	store := storage.NewInMemoryStorage()
+	var store storage.Storage
+
+	switch cfg.EvictionAlgorithm {
+	case config.FIFO:
+		store = storage.NewFIFOStorage(cfg.StorageSize)
+	case config.LRU:
+		store = storage.NewLRUStorage(cfg.StorageSize)
+	case config.NONE:
+		store = storage.NewNoEvictionStorage()
+	}
 
 	httpSrv := newHTTPServer(store)
 	go func() {
