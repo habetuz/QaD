@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/habetuz/qad/config"
 	grpcserver "github.com/habetuz/qad/grpc_server"
 	httpserver "github.com/habetuz/qad/http_server"
 	"github.com/habetuz/qad/proto_gen"
@@ -34,42 +35,44 @@ func main() {
 		zerolog.ConsoleWriter{Out: os.Stdout, NoColor: false},
 	)
 
-	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to load config")
+	}
+
+	zerolog.SetGlobalLevel(cfg.LogLevel)
 
 	store := storage.NewInMemoryStorage()
 
-	httpPort := 8080
 	httpSrv := newHTTPServer(store)
 	go func() {
-		log.Info().Int("port", httpPort).Msg("Starting HTTP server")
+		log.Info().Int("port", int(cfg.HTTPPort)).Msg("Starting HTTP server")
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal().Err(err).Int("port", httpPort).Msg("Failed to start HTTP server")
+			log.Fatal().Err(err).Int("port", int(cfg.HTTPPort)).Msg("Failed to start HTTP server")
 		}
 	}()
 
 	go func() {
-		grpcPort := 9876
-
 		lc := net.ListenConfig{}
 		lis, err := lc.Listen(
 			context.Background(),
 			"tcp",
-			fmt.Sprintf(":%d", grpcPort),
+			fmt.Sprintf(":%d", cfg.GRPCPort),
 		)
 		if err != nil {
 			log.Fatal().
 				Err(err).
-				Int("port", grpcPort).
+				Int("port", int(cfg.GRPCPort)).
 				Msg("Failed to create gRPC listener")
 		}
 
 		srv := newGRPCServer()
 
 		log.Info().
-			Int("port", grpcPort).
+			Int("port", int(cfg.GRPCPort)).
 			Msg("Starting gRPC server")
 		if err := srv.Serve(lis); err != nil {
-			log.Fatal().Err(err).Msgf("Failed to start gRPC server on :%d", grpcPort)
+			log.Fatal().Err(err).Msgf("Failed to start gRPC server on :%d", cfg.GRPCPort)
 		}
 	}()
 
