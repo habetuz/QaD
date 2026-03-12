@@ -1,9 +1,13 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
@@ -19,7 +23,7 @@ type EvictionAlgorithm string
 const (
 	FIFO EvictionAlgorithm = "FIFO"
 	LRU  EvictionAlgorithm = "LRU"
-	NONE   EvictionAlgorithm = "NONE"
+	NONE EvictionAlgorithm = "NONE"
 )
 
 type Config struct {
@@ -29,6 +33,9 @@ type Config struct {
 	Members           []Member
 	StorageSize       int
 	EvictionAlgorithm EvictionAlgorithm
+	NodeName          string
+	ClusterPort       int
+	SeedNodes         []string
 }
 
 func Load() (*Config, error) {
@@ -87,7 +94,45 @@ func Load() (*Config, error) {
 		cfg.Members = append(cfg.Members, Member{Name: name, Host: host})
 	}
 
+	if v := os.Getenv("NODE_NAME"); v != "" {
+		cfg.NodeName = v
+	} else {
+		cfg.NodeName = generateNodeID()
+	}
+
+	if v := os.Getenv("CLUSTER_PORT"); v != "" {
+		port, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("Invalid CLUSTER_PORT %q: %w", v, err)
+		}
+		cfg.ClusterPort = port
+	}
+
+	if v := os.Getenv("SEED_NODES"); v != "" {
+		// strings.Split breaks "a,b,c" into ["a", "b", "c"]
+		seeds := strings.Split(v, ",")
+
+		// Trim whitespace from each seed node address
+		for i := range seeds {
+			seeds[i] = strings.TrimSpace(seeds[i])
+		}
+
+		cfg.SeedNodes = seeds
+	}
+
 	return &cfg, nil
+}
+
+func generateNodeID() string {
+	timestamp := time.Now().Unix()
+	randomBytes := make([]byte, 3)
+
+	if _, err := rand.Read(randomBytes); err != nil {
+		return fmt.Sprintf("node-%d-000000", timestamp)
+	}
+
+	randomHex := hex.EncodeToString(randomBytes)
+	return fmt.Sprintf("node-%d-%s", timestamp, randomHex)
 }
 
 func defaultConfig() Config {
@@ -97,5 +142,8 @@ func defaultConfig() Config {
 		GRPCPort:          9876,
 		StorageSize:       1e+9,
 		EvictionAlgorithm: FIFO,
+		NodeName:          generateNodeID(),
+		ClusterPort:       7946,
+		SeedNodes:         []string{},
 	}
 }
