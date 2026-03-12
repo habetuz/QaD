@@ -48,13 +48,11 @@ func (c *ConsistentHashRing) RemoveNode(name string) {
 	if !slices.Contains(c.nodes, name) {
 		panic("node is not in ring")
 	}
+	c.nodes = slices.DeleteFunc(c.nodes, func(node string) bool {
+		return node == name
+	})
 
-	cp := make([]virtualNode, len(c.ring)-c.virtualNodes)
-	for _, node := range c.ring {
-		if node.name != name {
-			cp = append(cp, node)
-		}
-	}
+	c.ring = slices.DeleteFunc(c.ring, func(vn virtualNode) bool { return vn.name == name })
 }
 
 func (c *ConsistentHashRing) NodeOf(key string) string {

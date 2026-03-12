@@ -3,6 +3,7 @@ package consistenthashring
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"testing"
 )
@@ -160,5 +161,123 @@ func TestSortInto_MaintainsOrder(t *testing.T) {
 	}
 	if slice[0].name != "a" || slice[1].name != "b" || slice[2].name != "c" {
 		t.Errorf("unexpected order: %v", slice)
+	}
+}
+
+// verifies that removing a node acutally removes it from the physical nodes list
+func TestRemoveNode_UpdateNodesList(t *testing.T) {
+	t.Parallel()
+
+	ring := NewRing(3)
+
+	ring.AddNode("nodeA")
+	ring.AddNode("nodeB")
+	ring.AddNode("nodeC")
+
+	if len(ring.nodes) != 3 {
+		t.Fatalf("expected 3 nodes before removal, got %d", len(ring.nodes))
+	}
+	ring.RemoveNode("nodeB")
+	if len(ring.nodes) != 2 {
+		t.Fatalf("expected 2 nodes before removal, got %d", len(ring.nodes))
+	}
+
+	if slices.Contains(ring.nodes, "nodeB") {
+		t.Error("nodeB should have been removed from nodes list")
+	}
+
+	if !slices.Contains(ring.nodes, "nodeA") {
+		t.Error("nodeA should still be in nodes list")
+	}
+
+	if !slices.Contains(ring.nodes, "nodeC") {
+		t.Error("nodeC should still be in nodes list")
+	}
+}
+
+func TestRemoveNode_RemovesVirtualNodes(t *testing.T) {
+	t.Parallel()
+
+	virtualNodesCount := 5
+	ring := NewRing(virtualNodesCount)
+
+	ring.AddNode("nodeA")
+	ring.AddNode("nodeB")
+	ring.AddNode("nodeC")
+
+	expectedVirtualNodes := 15
+	if len(ring.ring) != expectedVirtualNodes {
+		t.Fatalf("expected %d virtual nodes, got %d", expectedVirtualNodes, len(ring.ring))
+	}
+
+	ring.RemoveNode("nodeB")
+
+	expectedAfterRemoval := 10
+	if len(ring.ring) != expectedAfterRemoval {
+		t.Errorf("expected %d virtual nodes after removal, got %d", expectedAfterRemoval, len(ring.ring))
+	}
+
+	for i, vn := range ring.ring {
+		if vn.name == "nodeB" {
+			t.Errorf("found nodeB virtual node at index %d after removal: %+v", i, vn)
+		}
+	}
+}
+
+// TestRemoveNode_NonExistentNode_Panics verifies that trying to remove
+// a node that doesn't exist causes a panic.
+func TestRemoveNode_NonExistentNode_Panics(t *testing.T) {
+	t.Parallel()
+
+	ring := NewRing(3)
+	ring.AddNode("nodeA")
+
+	defer func() {
+		if r := recover(); r == nil {
+
+			t.Error("expected panic when removing non-existent node, but did not panic")
+		}
+	}()
+
+	ring.RemoveNode("nodeB")
+
+}
+
+// TestRemoveNode_KeyRedistribution verifies that after removing a node,
+// keys that were assigned to that node get reassigned to other nodes.
+func TestRemoveNode_KeyRedistribution(t *testing.T) {
+	t.Parallel()
+
+	ring := NewRing(10)
+	ring.AddNode("nodeA")
+	ring.AddNode("nodeB")
+	ring.AddNode("nodeC")
+
+	var keysOnB []string
+	for i := 0; i < 1000; i++ {
+		key := fmt.Sprintf("key-%d", i)
+		if ring.NodeOf(key) == "nodeB" {
+			keysOnB = append(keysOnB, key)
+			if len(keysOnB) >= 10 {
+				break
+			}
+		}
+	}
+
+	if len(keysOnB) == 0 {
+		t.Fatal("could not find any keys that map to nodeB")
+	}
+
+	ring.RemoveNode("nodeB")
+
+	for _, key := range keysOnB {
+		node := ring.NodeOf(key)
+		if node == "nodeB" {
+			t.Errorf("key %q still maps to nodeB after removal", key)
+		}
+
+		if node != "nodeA" && node != "nodeC" {
+			t.Errorf("key %q maps to unexpected node %q after nodeB removal", key, node)
+		}
 	}
 }
