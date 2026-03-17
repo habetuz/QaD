@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/habetuz/qad/proto_gen"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -74,7 +75,7 @@ func (p *GRPCPool) GetConnection(nodeName string) (*grpc.ClientConn, error) {
 	// Use sync.Once to ensure connection is created exactly once
 	var dialErr error
 	entry.once.Do(func() {
-		
+
 		conn, err := grpc.NewClient(
 			entry.addr,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -209,4 +210,14 @@ func (p *GRPCPool) GetAllNodeNames() []string {
 	}
 
 	return names
+}
+
+// GetClient returns a CommunicationClient for the specified node.
+// This method satisfies the httpserver.GRPCPool interface.
+func (p *GRPCPool) GetClient(nodeAddr string) (proto_gen.CommunicationClient, error) {
+	conn, err := p.GetConnection(nodeAddr)
+	if err != nil {
+		return nil, err
+	}
+	return proto_gen.NewCommunicationClient(conn), nil
 }

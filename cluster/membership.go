@@ -48,40 +48,40 @@ type Manager struct {
 
 // NewManager creates a new cluster membership manager.
 func NewManager(cfg *config.Config, logger zerolog.Logger) (*Manager, error) {
-	
+
 	hashRing := consistenthashring.NewRing(150)
 
 	grpcPool := NewGRPCPool(logger)
 
-	delegate := NewEventDelegate(logger, hashRing, grpcPool, cfg.NodeName)
+	delegate := NewEventDelegate(logger, hashRing, grpcPool, cfg.NodeName, cfg.GRPCPort)
 
 	mlConfig := memberlist.DefaultLocalConfig()
 
-	mlConfig.Name = cfg.NodeName        
-	mlConfig.BindPort = cfg.ClusterPort 
-	mlConfig.Events = delegate          
+	mlConfig.Name = cfg.NodeName
+	mlConfig.BindPort = cfg.ClusterPort
+	mlConfig.Events = delegate
 
 	// Set up node metadata that will be gossiped to other nodes
 	// This tells other nodes how to communicate with us via gRPC
 	grpcAddr := fmt.Sprintf("%s:%d", getOutboundIP(), cfg.GRPCPort)
-	// nodeMeta := NodeMeta{
-	// 	NodeName: cfg.NodeName,
-	// 	GRPCAddr: grpcAddr,
-	// }
+	nodeMeta := NodeMeta{
+		NodeName: cfg.NodeName,
+		GRPCAddr: grpcAddr,
+	}
 
-	// Marshal metadata to bytes (memberlist requires []byte)
-	// metaBytes, err := nodeMeta.Marshal()
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to marshal node metadata: %w", err)
-	// }
-
-	// mlConfig.Metadata = metaBytes
+	// Create metadata delegate to provide our gRPC address to other nodes
+	metadataDelegate := NewMetadataDelegate(logger, nodeMeta)
+	mlConfig.Delegate = metadataDelegate
 
 	// Create the memberlist instance
 	list, err := memberlist.Create(mlConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create memberlist: %w", err)
 	}
+
+	// Add ourselves to the hash ring immediately
+	// This ensures the ring is never empty and we can handle requests for our own keys
+	hashRing.AddNode(cfg.NodeName)
 
 	logger.Info().
 		Str("node_name", cfg.NodeName).
@@ -123,8 +123,8 @@ func (m *Manager) Join() error {
 
 // Leave gracefully removes this node from the cluster.
 func (m *Manager) Leave() error {
-	
-	if err := m.list.Leave( (30 * time.Second) ); err != nil {
+
+	if err := m.list.Leave((30 * time.Second)); err != nil {
 		return fmt.Errorf("failed to leave cluster: %w", err)
 	}
 
@@ -180,7 +180,7 @@ func (m *Manager) GetLocalNodeName() string {
 // Returns:
 //   - string: IP address (e.g., "10.0.1.5" or "192.168.1.10")
 func getOutboundIP() string {
-	
+
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
 		return "127.0.0.1"
