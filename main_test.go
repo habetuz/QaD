@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/habetuz/qad/proto_gen"
+	"github.com/habetuz/qad/storage"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -19,7 +20,7 @@ func startTestServer(t *testing.T) (proto_gen.CommunicationClient, func()) {
 	t.Helper()
 
 	lis := bufconn.Listen(bufSize)
-	srv := newGRPCServer()
+	srv := newGRPCServer(storage.NewFIFOStorage(100))
 
 	go func() {
 		// Serve returns a non-nil error unless Stop or GracefulStop is called.
@@ -61,8 +62,8 @@ func TestRead(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected gRPC status error, got: %v", err)
 	}
-	if st.Code() != codes.Unimplemented {
-		t.Errorf("expected code %v, got %v", codes.Unimplemented, st.Code())
+	if st.Code() != codes.NotFound {
+		t.Errorf("expected code %v, got %v", codes.NotFound, st.Code())
 	}
 }
 
@@ -70,19 +71,28 @@ func TestWrite(t *testing.T) {
 	client, cleanup := startTestServer(t)
 	defer cleanup()
 
+	// Write a value
 	_, err := client.Write(context.Background(), &proto_gen.KeyValuePair{
 		Key:   &proto_gen.Key{Key: "test-key"},
 		Value: &proto_gen.Value{Payload: [][]byte{[]byte("test-value")}},
 	})
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
 	}
 
-	st, ok := status.FromError(err)
-	if !ok {
-		t.Fatalf("expected gRPC status error, got: %v", err)
+	// Verify the value was written by reading it back
+	resp, err := client.Read(context.Background(), &proto_gen.Key{Key: "test-key"})
+	if err != nil {
+		t.Fatalf("failed to read written value: %v", err)
 	}
-	if st.Code() != codes.Unimplemented {
-		t.Errorf("expected code %v, got %v", codes.Unimplemented, st.Code())
+
+	// Reconstruct the value from payload chunks
+	var value []byte
+	for _, chunk := range resp.Payload {
+		value = append(value, chunk...)
+	}
+
+	if string(value) != "test-value" {
+		t.Errorf("expected value 'test-value', got '%s'", value)
 	}
 }
