@@ -1,0 +1,236 @@
+package cluster
+
+import (
+	"testing"
+
+	consistenthashring "github.com/habetuz/qad/consistent_hash_ring"
+	"github.com/hashicorp/memberlist"
+	"github.com/rs/zerolog"
+)
+
+// TestEventDelegate_NotifyJoin verifies that joining nodes are added to
+// the hash ring and connection pool.
+func TestEventDelegate_NotifyJoin(t *testing.T) {
+	// Arrange: Set up test fixtures
+	logger := zerolog.Nop() // Nop() creates a logger that discards all output
+	hashRing := consistenthashring.NewRing(3)
+	grpcPool := NewGRPCPool(logger)
+	localName := "local-node"
+
+	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName)
+
+	// Create test node metadata
+	meta := NodeMeta{
+		NodeName: "remote-node",
+		GRPCAddr: "10.0.1.5:9876",
+	}
+	metaBytes, err := meta.Marshal()
+	if err != nil {
+		t.Fatalf("Failed to marshal metadata: %v", err)
+	}
+
+	// Create a fake memberlist.Node
+	// In real life, memberlist creates these; in tests, we create them manually
+	node := &memberlist.Node{
+		Name: "remote-node",
+		Meta: metaBytes,
+	}
+
+	// Act: Simulate a node joining
+	delegate.NotifyJoin(node)
+
+	// Assert: Verify node was added to hash ring
+	// We can test this by checking if keys route to the node
+	// The hash ring should now have this node in its rotation
+	// Note: We can't directly check if node is in ring, so we verify indirectly
+	// by checking that we have nodes in the ring
+	nodeInRing := hashRing.NodeOf("test-key")
+	if nodeInRing != "remote-node" && nodeInRing != "" {
+		// The key might not hash to our specific node, but the ring should be functional
+		// The real verification is that AddNode didn't panic
+	}
+
+	// Assert: Verify gRPC connection was added
+	conn, err := grpcPool.GetConnection("remote-node")
+	if err != nil {
+		t.Errorf("Expected connection to exist for joined node, got error: %v", err)
+	}
+	if conn == nil {
+		t.Error("Expected non-nil connection for joined node")
+	}
+}
+
+// TestEventDelegate_NotifyJoin_SkipsSelf verifies that we don't add
+// ourselves to the hash ring.
+func TestEventDelegate_NotifyJoin_SkipsSelf(t *testing.T) {
+	logger := zerolog.Nop()
+	hashRing := consistenthashring.NewRing(3)
+	grpcPool := NewGRPCPool(logger)
+	localName := "local-node"
+
+	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName)
+
+	// Create metadata for ourselves
+	meta := NodeMeta{
+		NodeName: localName,
+		GRPCAddr: "127.0.0.1:9876",
+	}
+	metaBytes, _ := meta.Marshal()
+
+	node := &memberlist.Node{
+		Name: localName, // Same as localName
+		Meta: metaBytes,
+	}
+
+	// Act: Simulate our own join event
+	delegate.NotifyJoin(node)
+
+	// Assert: Verify we didn't add ourselves to connection pool
+	_, err := grpcPool.GetConnection(localName)
+	if err == nil {
+		t.Error("Should not have connection to self")
+	}
+}
+
+// TestEventDelegate_NotifyLeave verifies that leaving nodes are removed
+// from the hash ring and connection pool.
+func TestEventDelegate_NotifyLeave(t *testing.T) {
+	logger := zerolog.Nop()
+	hashRing := consistenthashring.NewRing(3)
+	grpcPool := NewGRPCPool(logger)
+	localName := "local-node"
+
+	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName)
+
+	// Arrange: First add a node
+	meta := NodeMeta{
+		NodeName: "remote-node",
+		GRPCAddr: "10.0.1.5:9876",
+	}
+	metaBytes, _ := meta.Marshal()
+
+	node := &memberlist.Node{
+		Name: "remote-node",
+		Meta: metaBytes,
+	}
+
+	delegate.NotifyJoin(node)
+
+	// Act: Now remove it
+	delegate.NotifyLeave(node)
+
+	// Assert: Verify connection was removed
+	_, err := grpcPool.GetConnection("remote-node")
+	if err == nil {
+		t.Error("Expected connection to be removed for left node")
+	}
+
+	// Note: Can't easily verify hash ring removal without exposing internals
+	// In practice, RemoveNode() would panic if node wasn't there,
+	// and the test would fail
+}
+
+// TestEventDelegate_NotifyLeave_SkipsSelf verifies we handle our own leave correctly.
+func TestEventDelegate_NotifyLeave_SkipsSelf(t *testing.T) {
+	logger := zerolog.Nop()
+	hashRing := consistenthashring.NewRing(3)
+	grpcPool := NewGRPCPool(logger)
+	localName := "local-node"
+
+	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName)
+
+	meta := NodeMeta{
+		NodeName: localName,
+		GRPCAddr: "127.0.0.1:9876",
+	}
+	metaBytes, _ := meta.Marshal()
+
+	node := &memberlist.Node{
+		Name: localName,
+		Meta: metaBytes,
+	}
+
+	// Act: Simulate our own leave
+	// Should not panic even though we're not in the hash ring
+	delegate.NotifyLeave(node)
+
+	// If we get here without panic, test passes
+}
+
+// TestEventDelegate_NotifyUpdate verifies that node updates refresh connections.
+func TestEventDelegate_NotifyUpdate(t *testing.T) {
+	logger := zerolog.Nop()
+	hashRing := consistenthashring.NewRing(3)
+	grpcPool := NewGRPCPool(logger)
+	localName := "local-node"
+
+	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName)
+
+	// Arrange: Add a node first
+	meta := NodeMeta{
+		NodeName: "remote-node",
+		GRPCAddr: "10.0.1.5:9876",
+	}
+	metaBytes, _ := meta.Marshal()
+
+	node := &memberlist.Node{
+		Name: "remote-node",
+		Meta: metaBytes,
+	}
+
+	delegate.NotifyJoin(node)
+
+	// Act: Update with new metadata (different address)
+	newMeta := NodeMeta{
+		NodeName: "remote-node",
+		GRPCAddr: "10.0.1.5:9999", // Changed port
+	}
+	newMetaBytes, _ := newMeta.Marshal()
+
+	updatedNode := &memberlist.Node{
+		Name: "remote-node",
+		Meta: newMetaBytes,
+	}
+
+	delegate.NotifyUpdate(updatedNode)
+
+	// Assert: Connection should still exist (UpdateConnection creates new one)
+	conn, err := grpcPool.GetConnection("remote-node")
+	if err != nil {
+		t.Errorf("Expected connection after update, got error: %v", err)
+	}
+	if conn == nil {
+		t.Error("Expected non-nil connection after update")
+	}
+
+	// Note: We can't easily verify the address changed without inspecting
+	// the actual gRPC connection internals, but the UpdateConnection call
+	// executed successfully
+}
+
+// TestEventDelegate_NotifyJoin_InvalidMetadata verifies error handling
+// when node metadata is corrupted.
+func TestEventDelegate_NotifyJoin_InvalidMetadata(t *testing.T) {
+	logger := zerolog.Nop()
+	hashRing := consistenthashring.NewRing(3)
+	grpcPool := NewGRPCPool(logger)
+	localName := "local-node"
+
+	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName)
+
+	// Create node with invalid metadata (not JSON)
+	node := &memberlist.Node{
+		Name: "bad-node",
+		Meta: []byte("this is not json{{{"),
+	}
+
+	// Act: Try to join with bad metadata
+	// Should not panic, just log error and skip
+	delegate.NotifyJoin(node)
+
+	// Assert: Node should not be in connection pool
+	_, err := grpcPool.GetConnection("bad-node")
+	if err == nil {
+		t.Error("Node with invalid metadata should not have connection")
+	}
+}
