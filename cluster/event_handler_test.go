@@ -16,8 +16,9 @@ func TestEventDelegate_NotifyJoin(t *testing.T) {
 	hashRing := consistenthashring.NewRing(3)
 	grpcPool := NewGRPCPool(logger)
 	localName := "local-node"
+	var grpcPort uint32 = 9876
 
-	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName)
+	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName, grpcPort)
 
 	// Create test node metadata
 	meta := NodeMeta{
@@ -67,8 +68,9 @@ func TestEventDelegate_NotifyJoin_SkipsSelf(t *testing.T) {
 	hashRing := consistenthashring.NewRing(3)
 	grpcPool := NewGRPCPool(logger)
 	localName := "local-node"
+	var grpcPort uint32 = 9876
 
-	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName)
+	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName, grpcPort)
 
 	// Create metadata for ourselves
 	meta := NodeMeta{
@@ -99,8 +101,9 @@ func TestEventDelegate_NotifyLeave(t *testing.T) {
 	hashRing := consistenthashring.NewRing(3)
 	grpcPool := NewGRPCPool(logger)
 	localName := "local-node"
+	var grpcPort uint32 = 9876
 
-	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName)
+	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName, grpcPort)
 
 	// Arrange: First add a node
 	meta := NodeMeta{
@@ -136,8 +139,9 @@ func TestEventDelegate_NotifyLeave_SkipsSelf(t *testing.T) {
 	hashRing := consistenthashring.NewRing(3)
 	grpcPool := NewGRPCPool(logger)
 	localName := "local-node"
+	var grpcPort uint32 = 9876
 
-	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName)
+	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName, grpcPort)
 
 	meta := NodeMeta{
 		NodeName: localName,
@@ -163,8 +167,9 @@ func TestEventDelegate_NotifyUpdate(t *testing.T) {
 	hashRing := consistenthashring.NewRing(3)
 	grpcPool := NewGRPCPool(logger)
 	localName := "local-node"
+	var grpcPort uint32 = 9876
 
-	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName)
+	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName, grpcPort)
 
 	// Arrange: Add a node first
 	meta := NodeMeta{
@@ -208,29 +213,38 @@ func TestEventDelegate_NotifyUpdate(t *testing.T) {
 	// executed successfully
 }
 
-// TestEventDelegate_NotifyJoin_InvalidMetadata verifies error handling
+// TestEventDelegate_NotifyJoin_InvalidMetadata verifies fallback handling
 // when node metadata is corrupted.
 func TestEventDelegate_NotifyJoin_InvalidMetadata(t *testing.T) {
 	logger := zerolog.Nop()
 	hashRing := consistenthashring.NewRing(3)
 	grpcPool := NewGRPCPool(logger)
 	localName := "local-node"
+	var grpcPort uint32 = 9876
 
-	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName)
+	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName, grpcPort)
 
-	// Create node with invalid metadata (not JSON)
+	// Create node with invalid metadata (not JSON) but valid address
 	node := &memberlist.Node{
 		Name: "bad-node",
 		Meta: []byte("this is not json{{{"),
+		Addr: []byte{10, 0, 1, 5}, // IP address 10.0.1.5
 	}
 
 	// Act: Try to join with bad metadata
-	// Should not panic, just log error and skip
+	// Should not panic, use fallback mechanism instead
 	delegate.NotifyJoin(node)
 
-	// Assert: Node should not be in connection pool
-	_, err := grpcPool.GetConnection("bad-node")
-	if err == nil {
-		t.Error("Node with invalid metadata should not have connection")
+	// Assert: Node SHOULD be in connection pool (using fallback address)
+	// The fallback mechanism constructs: <node.Addr>:<grpcPort>
+	conn, err := grpcPool.GetConnection("bad-node")
+	if err != nil {
+		t.Errorf("Expected fallback connection to be created, got error: %v", err)
 	}
+	if conn == nil {
+		t.Error("Expected non-nil connection with fallback address")
+	}
+
+	// Note: The fallback mechanism provides robustness by constructing
+	// a gRPC address even when metadata parsing fails
 }

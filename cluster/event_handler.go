@@ -1,6 +1,8 @@
 package cluster
 
 import (
+	"fmt"
+
 	consistenthashring "github.com/habetuz/qad/consistent_hash_ring"
 	"github.com/hashicorp/memberlist"
 	"github.com/rs/zerolog"
@@ -15,6 +17,8 @@ type EventDelegate struct {
 	grpcPool *GRPCPool
 
 	localNodeName string
+
+	grpcPort uint32
 }
 
 // NewEventDelegate creates a new event handler for cluster membership events.
@@ -23,12 +27,14 @@ func NewEventDelegate(
 	hashRing *consistenthashring.ConsistentHashRing,
 	grpcPool *GRPCPool,
 	localNodeName string,
+	grpcPort uint32,
 ) *EventDelegate {
 	return &EventDelegate{
 		logger:        logger,
 		hashRing:      hashRing,
 		grpcPool:      grpcPool,
 		localNodeName: localNodeName,
+		grpcPort:      grpcPort,
 	}
 }
 
@@ -53,15 +59,7 @@ func (e *EventDelegate) NotifyJoin(node *memberlist.Node) {
 		Str("addr", node.Address()).
 		Msg("Node joined cluster")
 
-	var meta NodeMeta
-	if err := meta.Unmarshal(node.Meta); err != nil {
-		e.logger.Error().
-			Err(err).
-			Str("node", node.Name).
-			Msg("Failed to unmarshal node metadata on join")
-		return
-	}
-
+	// Skip processing ourselves - we're added to the ring during Manager initialization
 	if node.Name == e.localNodeName {
 		e.logger.Debug().
 			Str("node", node.Name).
@@ -69,10 +67,29 @@ func (e *EventDelegate) NotifyJoin(node *memberlist.Node) {
 		return
 	}
 
+	// Add remote node to hash ring
 	e.hashRing.AddNode(node.Name)
 
-	// Create a gRPC connection to the new node
-	// This is done lazily - the connection is established on first use
+	// Parse node metadata to get the gRPC address
+	var meta NodeMeta
+	if err := meta.Unmarshal(node.Meta); err != nil {
+		e.logger.Warn().
+			Err(err).
+			Str("node", node.Name).
+			Msg("Failed to unmarshal node metadata, using fallback address")
+		// Fallback: construct gRPC address using node's IP and our configured gRPC port
+		grpcAddr := fmt.Sprintf("%s:%d", node.Addr.String(), e.grpcPort)
+		if err := e.grpcPool.AddConnection(node.Name, grpcAddr); err != nil {
+			e.logger.Error().
+				Err(err).
+				Str("node", node.Name).
+				Str("grpc_addr", grpcAddr).
+				Msg("Failed to add gRPC connection for joined node")
+		}
+		return
+	}
+
+	// Use the gRPC address from metadata
 	if err := e.grpcPool.AddConnection(node.Name, meta.GRPCAddr); err != nil {
 		e.logger.Error().
 			Err(err).
@@ -108,20 +125,12 @@ func (e *EventDelegate) NotifyLeave(node *memberlist.Node) {
 
 // NotifyUpdate is called by memberlist when a node's metadata changes.
 func (e *EventDelegate) NotifyUpdate(node *memberlist.Node) {
-	e.logger.Info().
+	e.logger.Debug().
 		Str("node", node.Name).
 		Str("addr", node.Address()).
 		Msg("Node metadata updated")
 
-	var meta NodeMeta
-	if err := meta.Unmarshal(node.Meta); err != nil {
-		e.logger.Error().
-			Err(err).
-			Str("node", node.Name).
-			Msg("Failed to unmarshal node metadata on update")
-		return
-	}
-
+	// Skip processing ourselves
 	if node.Name == e.localNodeName {
 		e.logger.Debug().
 			Str("node", node.Name).
@@ -129,11 +138,6 @@ func (e *EventDelegate) NotifyUpdate(node *memberlist.Node) {
 		return
 	}
 
-	if err := e.grpcPool.UpdateConnection(node.Name, meta.GRPCAddr); err != nil {
-		e.logger.Error().
-			Err(err).
-			Str("node", node.Name).
-			Str("grpc_addr", meta.GRPCAddr).
-			Msg("Failed to update gRPC connection")
-	}
+	// For now, we don't handle updates since we're not using metadata
+	// In the future, if we add metadata support, we could update the gRPC address here
 }
