@@ -5,14 +5,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
 	"github.com/habetuz/qad/proto_gen"
 	"github.com/habetuz/qad/storage"
+	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// Enable debug logging for cross-node operations via environment variable
+var debugCrossNode = os.Getenv("DEBUG_CROSS_NODE") == "true"
 
 type HashRing interface {
 	GetNode(key string) string
@@ -66,7 +71,19 @@ func (s *Server) shouldRouteLocally(key string) (bool, string) {
 		return true, ""
 	}
 
-	if targetNode == s.selfAddr {
+	// Debug logging to trace routing decisions
+	isLocal := targetNode == s.selfAddr
+
+	if debugCrossNode {
+		log.Debug().
+			Str("key", key).
+			Str("target_node", targetNode).
+			Str("self_addr", s.selfAddr).
+			Bool("is_local", isLocal).
+			Msg("Routing decision")
+	}
+
+	if isLocal {
 		return true, ""
 	}
 
@@ -110,10 +127,22 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request, key string) {
 }
 
 // forwardGet sends a Read request to a remote node via gRPC.
-func (s *Server) forwardGet(ctx context.Context, nodeAddr, key string) ([]byte, error) {
-	client, err := s.grpcPool.GetClient(nodeAddr)
+func (s *Server) forwardGet(ctx context.Context, nodeName, key string) ([]byte, error) {
+	if debugCrossNode {
+		log.Debug().
+			Str("key", key).
+			Str("target_node", nodeName).
+			Msg("Forwarding GET request")
+	}
+
+	client, err := s.grpcPool.GetClient(nodeName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get client for %s: %w", nodeAddr, err)
+		log.Error().
+			Err(err).
+			Str("key", key).
+			Str("target_node", nodeName).
+			Msg("Failed to get gRPC client for forwarding")
+		return nil, fmt.Errorf("failed to get client for %s: %w", nodeName, err)
 	}
 
 	grpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -123,14 +152,33 @@ func (s *Server) forwardGet(ctx context.Context, nodeAddr, key string) ([]byte, 
 	if err != nil {
 		st, ok := status.FromError(err)
 		if ok && st.Code() == codes.NotFound {
+			if debugCrossNode {
+				log.Debug().
+					Str("key", key).
+					Str("target_node", nodeName).
+					Msg("Remote node returned NotFound")
+			}
 			return nil, nil
 		}
+		log.Warn().
+			Err(err).
+			Str("key", key).
+			Str("target_node", nodeName).
+			Msg("gRPC Read failed during forwarding")
 		return nil, fmt.Errorf("gRPC Read failed: %w", err)
 	}
 
 	var fullValue []byte
 	for _, chunk := range resp.Payload {
 		fullValue = append(fullValue, chunk...)
+	}
+
+	if debugCrossNode {
+		log.Debug().
+			Str("key", key).
+			Str("target_node", nodeName).
+			Int("bytes", len(fullValue)).
+			Msg("Successfully forwarded GET request")
 	}
 
 	return fullValue, nil
@@ -164,10 +212,22 @@ func (s *Server) handlePost(w http.ResponseWriter, r *http.Request, key string) 
 }
 
 // forwardPost sends a Write request to a remote node via gRPC.
-func (s *Server) forwardPost(ctx context.Context, nodeAddr, key string, value []byte) {
-	client, err := s.grpcPool.GetClient(nodeAddr)
+func (s *Server) forwardPost(ctx context.Context, nodeName, key string, value []byte) {
+	if debugCrossNode {
+		log.Debug().
+			Str("key", key).
+			Str("target_node", nodeName).
+			Int("value_size", len(value)).
+			Msg("Forwarding POST request")
+	}
+
+	client, err := s.grpcPool.GetClient(nodeName)
 	if err != nil {
-		fmt.Printf("failed to get client for %s: %v\n", nodeAddr, err)
+		log.Error().
+			Err(err).
+			Str("key", key).
+			Str("target_node", nodeName).
+			Msg("Failed to get gRPC client for forwarding write")
 		return
 	}
 
@@ -179,9 +239,17 @@ func (s *Server) forwardPost(ctx context.Context, nodeAddr, key string, value []
 		Value: &proto_gen.Value{Payload: [][]byte{value}},
 	})
 	if err != nil {
-		fmt.Printf("gRPC Write failed for key %s: %v\n", key, err)
+		log.Error().
+			Err(err).
+			Str("key", key).
+			Str("target_node", nodeName).
+			Msg("gRPC Write failed during forwarding")
+	} else if debugCrossNode {
+		log.Debug().
+			Str("key", key).
+			Str("target_node", nodeName).
+			Msg("Successfully forwarded POST request")
 	}
-
 }
 
 func (s *Server) writeValue(key string, value []byte) {
