@@ -60,7 +60,17 @@ func (c *ConsistentHashRing) NodeOf(key string) string {
 	return c.NodeOfDirect(hash)
 }
 
+// GetNode is an alias for NodeOf to satisfy the httpserver.HashRing interface.
+func (c *ConsistentHashRing) GetNode(key string) string {
+	return c.NodeOf(key)
+}
+
 func (c *ConsistentHashRing) NodeOfDirect(hash uint64) string {
+	// Handle empty ring - return empty string
+	if len(c.ring) == 0 {
+		return ""
+	}
+
 	// Binary search for the rightmost node with hash <= input hash.
 	i := sort.Search(len(c.ring), func(i int) bool { return c.ring[i].hash > hash }) - 1
 	if i < 0 {
