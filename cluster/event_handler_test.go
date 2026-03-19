@@ -1,13 +1,75 @@
 package cluster
 
 import (
+	"bytes"
+	"context"
+	"fmt"
+	"net"
 	"testing"
+	"time"
 
 	consistenthashring "github.com/habetuz/qad/consistent_hash_ring"
+	"github.com/habetuz/qad/proto_gen"
 	"github.com/habetuz/qad/storage"
 	"github.com/hashicorp/memberlist"
 	"github.com/rs/zerolog"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+type captureCommunicationServer struct {
+	proto_gen.UnimplementedCommunicationServer
+	writes chan *proto_gen.KeyValuePair
+}
+
+func (s *captureCommunicationServer) Read(context.Context, *proto_gen.Key) (*proto_gen.Value, error) {
+	return nil, status.Error(codes.NotFound, "not found")
+}
+
+func (s *captureCommunicationServer) Write(_ context.Context, kv *proto_gen.KeyValuePair) (*proto_gen.Void, error) {
+	s.writes <- kv
+	return &proto_gen.Void{}, nil
+}
+
+func startCaptureGRPCServer(t *testing.T) (string, <-chan *proto_gen.KeyValuePair, func()) {
+	t.Helper()
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+
+	grpcServer := grpc.NewServer()
+	impl := &captureCommunicationServer{writes: make(chan *proto_gen.KeyValuePair, 8)}
+	proto_gen.RegisterCommunicationServer(grpcServer, impl)
+
+	go func() {
+		_ = grpcServer.Serve(lis)
+	}()
+
+	cleanup := func() {
+		grpcServer.Stop()
+		_ = lis.Close()
+	}
+
+	return lis.Addr().String(), impl.writes, cleanup
+}
+
+func findKeyAndHashForNode(t *testing.T, ring *consistenthashring.ConsistentHashRing, nodeName string) (string, uint64) {
+	t.Helper()
+
+	for i := 0; i < 2_000_000; i++ {
+		key := fmt.Sprintf("probe-key-%d", i)
+		h, n := ring.NodeOf(key)
+		if n == nodeName {
+			return key, h
+		}
+	}
+
+	t.Fatalf("failed to find key/hash for node %s", nodeName)
+	return "", 0
+}
 
 // TestEventDelegate_NotifyJoin verifies that joining nodes are added to
 // the hash ring and connection pool.
@@ -254,4 +316,103 @@ func TestEventDelegate_NotifyJoin_InvalidMetadata(t *testing.T) {
 
 	// Note: The fallback mechanism provides robustness by constructing
 	// a gRPC address even when metadata parsing fails
+}
+
+func TestEventDelegate_NotifyJoin_TransfersKeyToNewOwner(t *testing.T) {
+	logger := zerolog.Nop()
+	hashRing := consistenthashring.NewRing(150)
+	localName := "local-node"
+	remoteName := "remote-node"
+	hashRing.AddNode(localName)
+
+	store := storage.NewNoEvictionStorage()
+	grpcPool := NewGRPCPool(logger)
+	var grpcPort uint32 = 9876
+
+	delegate := NewEventDelegate(logger, hashRing, store, grpcPool, localName, grpcPort)
+
+	addr, writes, cleanup := startCaptureGRPCServer(t)
+	defer cleanup()
+
+	probeRing := consistenthashring.NewRing(150)
+	probeRing.AddNode(localName)
+	probeRing.AddNode(remoteName)
+
+	_, transferHash := findKeyAndHashForNode(t, probeRing, remoteName)
+	key := "transfer-key"
+	value := []byte("transfer-value")
+	store.Write(key, transferHash, value)
+
+	meta := NodeMeta{NodeName: remoteName, GRPCAddr: addr}
+	metaBytes, err := meta.Marshal()
+	if err != nil {
+		t.Fatalf("failed to marshal metadata: %v", err)
+	}
+
+	joinNode := &memberlist.Node{Name: remoteName, Meta: metaBytes}
+	delegate.NotifyJoin(joinNode)
+
+	if got := store.Read(key); got != nil {
+		t.Fatalf("expected key to be moved off local node, got %q", string(got))
+	}
+
+	select {
+	case kv := <-writes:
+		if kv.Key != key {
+			t.Fatalf("expected transferred key %q, got %q", key, kv.Key)
+		}
+		if kv.Hash != transferHash {
+			t.Fatalf("expected transferred hash %d, got %d", transferHash, kv.Hash)
+		}
+		if !bytes.Equal(kv.Value, value) {
+			t.Fatalf("expected transferred value %q, got %q", string(value), string(kv.Value))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for transferred write")
+	}
+}
+
+func TestEventDelegate_NotifyJoin_DoesNotTransferKeyStillOwnedLocally(t *testing.T) {
+	logger := zerolog.Nop()
+	hashRing := consistenthashring.NewRing(150)
+	localName := "local-node"
+	remoteName := "remote-node"
+	hashRing.AddNode(localName)
+
+	store := storage.NewNoEvictionStorage()
+	grpcPool := NewGRPCPool(logger)
+	var grpcPort uint32 = 9876
+
+	delegate := NewEventDelegate(logger, hashRing, store, grpcPool, localName, grpcPort)
+
+	addr, writes, cleanup := startCaptureGRPCServer(t)
+	defer cleanup()
+
+	probeRing := consistenthashring.NewRing(150)
+	probeRing.AddNode(localName)
+	probeRing.AddNode(remoteName)
+
+	key, localHash := findKeyAndHashForNode(t, probeRing, localName)
+	value := []byte("local-value")
+	store.Write(key, localHash, value)
+
+	meta := NodeMeta{NodeName: remoteName, GRPCAddr: addr}
+	metaBytes, err := meta.Marshal()
+	if err != nil {
+		t.Fatalf("failed to marshal metadata: %v", err)
+	}
+
+	joinNode := &memberlist.Node{Name: remoteName, Meta: metaBytes}
+	delegate.NotifyJoin(joinNode)
+
+	if got := store.Read(key); !bytes.Equal(got, value) {
+		t.Fatalf("expected key to remain local, got %q", string(got))
+	}
+
+	select {
+	case kv := <-writes:
+		t.Fatalf("unexpected transfer for locally-owned key: %+v", kv)
+	case <-time.After(200 * time.Millisecond):
+		// expected: no transfer
+	}
 }
