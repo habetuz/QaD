@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"strconv"
 	"time"
@@ -56,6 +57,7 @@ func NewManager(cfg *config.Config, logger zerolog.Logger) (*Manager, error) {
 	delegate := NewEventDelegate(logger, hashRing, grpcPool, cfg.NodeName, cfg.GRPCPort)
 
 	mlConfig := memberlist.DefaultLocalConfig()
+	mlConfig.Logger = log.New(&ZerologWriter{logger: logger}, "", 0)
 
 	mlConfig.Name = cfg.NodeName
 	mlConfig.BindPort = cfg.ClusterPort

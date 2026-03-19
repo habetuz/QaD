@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -15,9 +14,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
-// Enable debug logging for cross-node operations via environment variable
-var debugCrossNode = os.Getenv("DEBUG_CROSS_NODE") == "true"
 
 type HashRing interface {
 	GetNode(key string) string
@@ -61,30 +57,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // shouldRouteLocally determines if a request should be handled locally or forwarded.
 func (s *Server) shouldRouteLocally(key string) (bool, string) {
-	if s.hashRing == nil {
-		return true, ""
-	}
-
 	targetNode := s.hashRing.GetNode(key)
-
-	if targetNode == "" {
-		return true, ""
-	}
 
 	// Debug logging to trace routing decisions
 	isLocal := targetNode == s.selfAddr
 
-	if debugCrossNode {
-		log.Debug().
-			Str("key", key).
-			Str("target_node", targetNode).
-			Str("self_addr", s.selfAddr).
-			Bool("is_local", isLocal).
-			Msg("Routing decision")
-	}
+	log.Debug().
+		Str("key", key).
+		Str("target_node", targetNode).
+		Str("self_addr", s.selfAddr).
+		Bool("is_local", isLocal).
+		Msg("Routing decision")
 
 	if isLocal {
-		return true, ""
+		return true, targetNode
 	}
 
 	return false, targetNode
@@ -128,12 +114,10 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request, key string) {
 
 // forwardGet sends a Read request to a remote node via gRPC.
 func (s *Server) forwardGet(ctx context.Context, nodeName, key string) ([]byte, error) {
-	if debugCrossNode {
-		log.Debug().
-			Str("key", key).
-			Str("target_node", nodeName).
-			Msg("Forwarding GET request")
-	}
+	log.Debug().
+		Str("key", key).
+		Str("target_node", nodeName).
+		Msg("Forwarding GET request")
 
 	client, err := s.grpcPool.GetClient(nodeName)
 	if err != nil {
@@ -152,12 +136,10 @@ func (s *Server) forwardGet(ctx context.Context, nodeName, key string) ([]byte, 
 	if err != nil {
 		st, ok := status.FromError(err)
 		if ok && st.Code() == codes.NotFound {
-			if debugCrossNode {
-				log.Debug().
-					Str("key", key).
-					Str("target_node", nodeName).
-					Msg("Remote node returned NotFound")
-			}
+			log.Debug().
+				Str("key", key).
+				Str("target_node", nodeName).
+				Msg("Remote node returned NotFound")
 			return nil, nil
 		}
 		log.Warn().
@@ -173,13 +155,11 @@ func (s *Server) forwardGet(ctx context.Context, nodeName, key string) ([]byte, 
 		fullValue = append(fullValue, chunk...)
 	}
 
-	if debugCrossNode {
-		log.Debug().
-			Str("key", key).
-			Str("target_node", nodeName).
-			Int("bytes", len(fullValue)).
-			Msg("Successfully forwarded GET request")
-	}
+	log.Debug().
+		Str("key", key).
+		Str("target_node", nodeName).
+		Int("bytes", len(fullValue)).
+		Msg("Successfully forwarded GET request")
 
 	return fullValue, nil
 }
@@ -213,13 +193,11 @@ func (s *Server) handlePost(w http.ResponseWriter, r *http.Request, key string) 
 
 // forwardPost sends a Write request to a remote node via gRPC.
 func (s *Server) forwardPost(ctx context.Context, nodeName, key string, value []byte) {
-	if debugCrossNode {
-		log.Debug().
-			Str("key", key).
-			Str("target_node", nodeName).
-			Int("value_size", len(value)).
-			Msg("Forwarding POST request")
-	}
+	log.Debug().
+		Str("key", key).
+		Str("target_node", nodeName).
+		Int("value_size", len(value)).
+		Msg("Forwarding POST request")
 
 	client, err := s.grpcPool.GetClient(nodeName)
 	if err != nil {
@@ -244,12 +222,12 @@ func (s *Server) forwardPost(ctx context.Context, nodeName, key string, value []
 			Str("key", key).
 			Str("target_node", nodeName).
 			Msg("gRPC Write failed during forwarding")
-	} else if debugCrossNode {
-		log.Debug().
-			Str("key", key).
-			Str("target_node", nodeName).
-			Msg("Successfully forwarded POST request")
 	}
+
+	log.Debug().
+		Str("key", key).
+		Str("target_node", nodeName).
+		Msg("Successfully forwarded POST request")
 }
 
 func (s *Server) writeValue(key string, value []byte) {

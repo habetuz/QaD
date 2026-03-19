@@ -123,7 +123,7 @@ func Load() (*Config, error) {
 		}
 	} else if v := os.Getenv("EVICTION_ALGORITHM"); v != "" {
 		switch EvictionAlgorithm(v) {
-		case FIFO, LRU:
+		case FIFO, LRU, NONE:
 			cfg.EvictionAlgorithm = EvictionAlgorithm(v)
 		default:
 			return nil, fmt.Errorf("invalid EVICTION_ALGORITHM %q: must be one of FIFO, LRU", v)
