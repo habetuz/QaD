@@ -1,0 +1,71 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/habetuz/qad
+  pullPolicy: IfNotPresent
+  tag: latest
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+containerPorts:
+  - name: http
+    containerPort: 8080
+    protocol: TCP
+  - name: grpc
+    containerPort: 9876
+    protocol: TCP
+  - name: cluster
+    containerPort: 7946
+    protocol: TCP
+
+service:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+    - name: grpc
+      port: 9876
+      targetPort: 9876
+      protocol: TCP
+    - name: cluster
+      port: 7946
+      targetPort: 7946
+      protocol: TCP
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: qad.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+qad:
+  # These keys are translated 1:1 into environment variables.
+  # Example: LOG_LEVEL -> env LOG_LEVEL
+  config:
+    LOG_LEVEL: info
+    HTTP_PORT: "8080"
+    GRPC_PORT: "9876"
+    CLUSTER_PORT: "7946"
+    STORAGE_SIZE: "1000000000"
+    EVICTION_ALGORITHM: FIFO
+    NODE_NAME: ""
+    SEED_NODES: ""
+
+extraEnv: []
+# extraEnv example:
+# - name: CUSTOM_ENV
+#   value: custom
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

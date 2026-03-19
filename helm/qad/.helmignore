@@ -1,0 +1,14 @@
+# Common VCS
+.git/
+.gitignore
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Helm artifacts
+*.tgz

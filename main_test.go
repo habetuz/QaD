@@ -74,7 +74,7 @@ func TestWrite(t *testing.T) {
 	// Write a value
 	_, err := client.Write(context.Background(), &proto_gen.KeyValuePair{
 		Key:   "test-key",
-		Hash: 1234,
+		Hash:  1234,
 		Value: []byte("test-value"),
 	})
 	if err != nil {
