@@ -47,9 +47,25 @@ ingress:
           pathType: Prefix
   tls: []
 
+healthChecks:
+  enabled: true
+  path: /health
+  portName: http
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  liveness:
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 2
+    failureThreshold: 3
+
 qad:
   # These keys are translated 1:1 into environment variables.
   # Example: LOG_LEVEL -> env LOG_LEVEL
+  # NODE_NAME and SEED_NODES are managed automatically by the chart.
   config:
     LOG_LEVEL: info
     HTTP_PORT: "8080"
@@ -57,8 +73,6 @@ qad:
     CLUSTER_PORT: "7946"
     STORAGE_SIZE: "1000000000"
     EVICTION_ALGORITHM: FIFO
-    NODE_NAME: ""
-    SEED_NODES: ""
 
 extraEnv: []
 # extraEnv example:

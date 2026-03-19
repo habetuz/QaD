@@ -1,3 +1,4 @@
+{{- $clusterPort := default "7946" (index .Values.qad.config "CLUSTER_PORT") -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,12 +31,38 @@ spec:
             {{- end }}
           env:
             {{- range $k, $v := .Values.qad.config }}
+            {{- if and (ne $k "NODE_NAME") (ne $k "SEED_NODES") }}
             - name: {{ $k }}
               value: {{ $v | quote }}
             {{- end }}
+            {{- end }}
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SEED_NODES
+              value: {{ printf "%s-headless:%v" (include "qad.fullname" .) $clusterPort | quote }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          {{- if .Values.healthChecks.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.healthChecks.path }}
+              port: {{ .Values.healthChecks.portName }}
+            initialDelaySeconds: {{ .Values.healthChecks.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthChecks.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.healthChecks.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.healthChecks.readiness.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.healthChecks.path }}
+              port: {{ .Values.healthChecks.portName }}
+            initialDelaySeconds: {{ .Values.healthChecks.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthChecks.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.healthChecks.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.healthChecks.liveness.failureThreshold }}
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}

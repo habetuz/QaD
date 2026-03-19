@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "qad.fullname" . }}-headless
+  labels:
+    {{- include "qad.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "qad.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: cluster-tcp
+      port: {{ default 7946 (index .Values.qad.config "CLUSTER_PORT") }}
+      targetPort: {{ default 7946 (index .Values.qad.config "CLUSTER_PORT") }}
+      protocol: TCP
+    - name: cluster-udp
+      port: {{ default 7946 (index .Values.qad.config "CLUSTER_PORT") }}
+      targetPort: {{ default 7946 (index .Values.qad.config "CLUSTER_PORT") }}
+      protocol: UDP
