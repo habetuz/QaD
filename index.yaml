@@ -1,0 +1,14 @@
+apiVersion: v1
+entries:
+  qad:
+  - apiVersion: v2
+    appVersion: 1.0.0
+    created: "2026-03-19T13:36:42.184832428Z"
+    description: A simple Helm chart for deploying qad
+    digest: 45bf1e2f0f18c08bf4e7f167d8b1db1a37b97f1b722c1836cb3b48a849288ab2
+    name: qad
+    type: application
+    urls:
+    - https://github.com/habetuz/QaD/releases/download/qad-1.0.1/qad-1.0.1.tgz
+    version: 1.0.1
+generated: "2026-03-19T13:36:42.184894794Z"
