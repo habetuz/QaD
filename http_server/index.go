@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/habetuz/qad/proto_gen"
@@ -41,7 +42,23 @@ func NewServer(storage storage.Storage, hashRing HashRing, grpcPool GRPCPool, se
 
 // ServeHTTP implements the http.Handler interface.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	key := r.URL.Path[1:]
+	path := r.URL.Path[1:]
+	path = strings.Trim(path, "/")
+
+	switch path {
+	case "health":
+		s.HealthHandler(w, r)
+		return
+	case "cluster":
+		s.ClusterHandler(w, r)
+		return
+	}
+
+	if !strings.HasPrefix(path, "api/") {
+		http.Error(w, "Endpoint does not exist", http.StatusNotFound)
+	}
+
+	key := strings.TrimPrefix(path, "api/")
 
 	switch r.Method {
 	case http.MethodGet:
