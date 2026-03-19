@@ -9,6 +9,7 @@ import (
 
 	"github.com/habetuz/qad/config"
 	consistenthashring "github.com/habetuz/qad/consistent_hash_ring"
+	"github.com/habetuz/qad/storage"
 	"github.com/hashicorp/memberlist"
 	"github.com/rs/zerolog"
 )
@@ -48,13 +49,13 @@ type Manager struct {
 }
 
 // NewManager creates a new cluster membership manager.
-func NewManager(cfg *config.Config, logger zerolog.Logger) (*Manager, error) {
+func NewManager(cfg *config.Config, logger zerolog.Logger, store storage.Storage) (*Manager, error) {
 
 	hashRing := consistenthashring.NewRing(150)
 
 	grpcPool := NewGRPCPool(logger)
 
-	delegate := NewEventDelegate(logger, hashRing, grpcPool, cfg.NodeName, cfg.GRPCPort)
+	delegate := NewEventDelegate(logger, hashRing, store, grpcPool, cfg.NodeName, cfg.GRPCPort)
 
 	mlConfig := memberlist.DefaultLocalConfig()
 	mlConfig.Logger = log.New(&ZerologWriter{logger: logger}, "", 0)

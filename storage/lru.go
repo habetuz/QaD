@@ -11,6 +11,7 @@ var _ Storage = (*LRUStorage)(nil)
 
 type lruEntry struct {
 	key   string
+	hash  uint64
 	value []byte
 	elem  *list.Element
 }
@@ -69,17 +70,18 @@ func (s *LRUStorage) Read(key string) []byte {
 }
 
 // Write implements [Storage].
-func (s *LRUStorage) Write(key string, value []byte) {
+func (s *LRUStorage) Write(key string, hash uint64, value []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if val, ok := s.storage.Load(key); ok {
 		entry := val.(*lruEntry)
 		s.curSize -= len(entry.value)
+		entry.hash = hash
 		entry.value = value
 		s.list.MoveToFront(entry.elem)
 	} else {
-		entry := &lruEntry{key: key, value: value}
+		entry := &lruEntry{key: key, hash: hash, value: value}
 		entry.elem = s.list.PushFront(entry)
 		s.storage.Store(key, entry)
 	}
@@ -110,4 +112,17 @@ func (s *LRUStorage) Delete(key string) {
 		s.storage.Delete(key)
 	}
 	log.Debug().Str("key", key).Msg("LRU deleted key")
+}
+
+// ListKeys implements [Storage].
+func (s *LRUStorage) ListKeys() map[string]uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	keys := make(map[string]uint64, s.list.Len())
+	for elem := s.list.Front(); elem != nil; elem = elem.Next() {
+		entry := elem.Value.(*lruEntry)
+		keys[entry.key] = entry.hash
+	}
+	return keys
 }

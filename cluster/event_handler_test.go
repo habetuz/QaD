@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	consistenthashring "github.com/habetuz/qad/consistent_hash_ring"
+	"github.com/habetuz/qad/storage"
 	"github.com/hashicorp/memberlist"
 	"github.com/rs/zerolog"
 )
@@ -14,11 +15,12 @@ func TestEventDelegate_NotifyJoin(t *testing.T) {
 	// Arrange: Set up test fixtures
 	logger := zerolog.Nop() // Nop() creates a logger that discards all output
 	hashRing := consistenthashring.NewRing(3)
+	store := storage.NewNoEvictionStorage()
 	grpcPool := NewGRPCPool(logger)
 	localName := "local-node"
 	var grpcPort uint32 = 9876
 
-	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName, grpcPort)
+	delegate := NewEventDelegate(logger, hashRing, store, grpcPool, localName, grpcPort)
 
 	// Create test node metadata
 	meta := NodeMeta{
@@ -45,7 +47,7 @@ func TestEventDelegate_NotifyJoin(t *testing.T) {
 	// The hash ring should now have this node in its rotation
 	// Note: We can't directly check if node is in ring, so we verify indirectly
 	// by checking that we have nodes in the ring
-	nodeInRing := hashRing.NodeOf("test-key")
+	_, nodeInRing := hashRing.NodeOf("test-key")
 	if nodeInRing != "remote-node" && nodeInRing != "" {
 		// The key might not hash to our specific node, but the ring should be functional
 		// The real verification is that AddNode didn't panic
@@ -66,11 +68,12 @@ func TestEventDelegate_NotifyJoin(t *testing.T) {
 func TestEventDelegate_NotifyJoin_SkipsSelf(t *testing.T) {
 	logger := zerolog.Nop()
 	hashRing := consistenthashring.NewRing(3)
+	store := storage.NewNoEvictionStorage()
 	grpcPool := NewGRPCPool(logger)
 	localName := "local-node"
 	var grpcPort uint32 = 9876
 
-	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName, grpcPort)
+	delegate := NewEventDelegate(logger, hashRing, store, grpcPool, localName, grpcPort)
 
 	// Create metadata for ourselves
 	meta := NodeMeta{
@@ -99,11 +102,12 @@ func TestEventDelegate_NotifyJoin_SkipsSelf(t *testing.T) {
 func TestEventDelegate_NotifyLeave(t *testing.T) {
 	logger := zerolog.Nop()
 	hashRing := consistenthashring.NewRing(3)
+	store := storage.NewNoEvictionStorage()
 	grpcPool := NewGRPCPool(logger)
 	localName := "local-node"
 	var grpcPort uint32 = 9876
 
-	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName, grpcPort)
+	delegate := NewEventDelegate(logger, hashRing, store, grpcPool, localName, grpcPort)
 
 	// Arrange: First add a node
 	meta := NodeMeta{
@@ -137,11 +141,12 @@ func TestEventDelegate_NotifyLeave(t *testing.T) {
 func TestEventDelegate_NotifyLeave_SkipsSelf(t *testing.T) {
 	logger := zerolog.Nop()
 	hashRing := consistenthashring.NewRing(3)
+	store := storage.NewNoEvictionStorage()
 	grpcPool := NewGRPCPool(logger)
 	localName := "local-node"
 	var grpcPort uint32 = 9876
 
-	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName, grpcPort)
+	delegate := NewEventDelegate(logger, hashRing, store, grpcPool, localName, grpcPort)
 
 	meta := NodeMeta{
 		NodeName: localName,
@@ -165,11 +170,12 @@ func TestEventDelegate_NotifyLeave_SkipsSelf(t *testing.T) {
 func TestEventDelegate_NotifyUpdate(t *testing.T) {
 	logger := zerolog.Nop()
 	hashRing := consistenthashring.NewRing(3)
+	store := storage.NewNoEvictionStorage()
 	grpcPool := NewGRPCPool(logger)
 	localName := "local-node"
 	var grpcPort uint32 = 9876
 
-	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName, grpcPort)
+	delegate := NewEventDelegate(logger, hashRing, store, grpcPool, localName, grpcPort)
 
 	// Arrange: Add a node first
 	meta := NodeMeta{
@@ -218,11 +224,12 @@ func TestEventDelegate_NotifyUpdate(t *testing.T) {
 func TestEventDelegate_NotifyJoin_InvalidMetadata(t *testing.T) {
 	logger := zerolog.Nop()
 	hashRing := consistenthashring.NewRing(3)
+	store := storage.NewNoEvictionStorage()
 	grpcPool := NewGRPCPool(logger)
 	localName := "local-node"
 	var grpcPort uint32 = 9876
 
-	delegate := NewEventDelegate(logger, hashRing, grpcPool, localName, grpcPort)
+	delegate := NewEventDelegate(logger, hashRing, store, grpcPool, localName, grpcPort)
 
 	// Create node with invalid metadata (not JSON) but valid address
 	node := &memberlist.Node{

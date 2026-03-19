@@ -17,7 +17,7 @@ import (
 )
 
 type HashRing interface {
-	GetNode(key string) string
+	NodeOf(key string) (uint64, string)
 	GetNodes() []string
 }
 
@@ -74,8 +74,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // shouldRouteLocally determines if a request should be handled locally or forwarded.
-func (s *Server) shouldRouteLocally(key string) (bool, string) {
-	targetNode := s.hashRing.GetNode(key)
+func (s *Server) shouldRouteLocally(key string) (bool, uint64, string) {
+	hash, targetNode := s.hashRing.NodeOf(key)
 
 	// Debug logging to trace routing decisions
 	isLocal := targetNode == s.selfAddr
@@ -88,10 +88,10 @@ func (s *Server) shouldRouteLocally(key string) (bool, string) {
 		Msg("Routing decision")
 
 	if isLocal {
-		return true, targetNode
+		return true, hash, targetNode
 	}
 
-	return false, targetNode
+	return false, hash, targetNode
 }
 
 // handleGet returns the value for the given key, or 404 if not found.
@@ -102,7 +102,7 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request, key string) {
 		return
 	}
 
-	isLocal, targetNode := s.shouldRouteLocally(key)
+	isLocal, _, targetNode := s.shouldRouteLocally(key)
 
 	var value []byte
 	var err error
@@ -196,13 +196,13 @@ func (s *Server) handlePost(w http.ResponseWriter, r *http.Request, key string) 
 		return
 	}
 
-	isLocal, targetNode := s.shouldRouteLocally(key)
+	isLocal, hash, targetNode := s.shouldRouteLocally(key)
 
 	if isLocal {
-		go s.writeValue(key, body)
+		go s.writeValue(key, hash, body)
 	} else {
 		// Use background context for async operation since we return immediately
-		go s.forwardPost(context.Background(), targetNode, key, body)
+		go s.forwardPost(context.Background(), targetNode, key, hash, body)
 	}
 
 	// Return 202 Accepted immediately (async operation)
@@ -210,7 +210,7 @@ func (s *Server) handlePost(w http.ResponseWriter, r *http.Request, key string) 
 }
 
 // forwardPost sends a Write request to a remote node via gRPC.
-func (s *Server) forwardPost(ctx context.Context, nodeName, key string, value []byte) {
+func (s *Server) forwardPost(ctx context.Context, nodeName, key string, hash uint64, value []byte) {
 	log.Debug().
 		Str("key", key).
 		Str("target_node", nodeName).
@@ -231,8 +231,9 @@ func (s *Server) forwardPost(ctx context.Context, nodeName, key string, value []
 	defer cancel()
 
 	_, err = client.Write(grpcCtx, &proto_gen.KeyValuePair{
-		Key:   &proto_gen.Key{Key: key},
-		Value: &proto_gen.Value{Payload: [][]byte{value}},
+		Key:   key,
+		Hash:  hash,
+		Value: value,
 	})
 	if err != nil {
 		log.Error().
@@ -248,8 +249,8 @@ func (s *Server) forwardPost(ctx context.Context, nodeName, key string, value []
 		Msg("Successfully forwarded POST request")
 }
 
-func (s *Server) writeValue(key string, value []byte) {
-	s.storage.Write(key, value)
+func (s *Server) writeValue(key string, hash uint64, value []byte) {
+	s.storage.Write(key, hash, value)
 }
 
 // handleDelete clears the value for the given key.
@@ -259,7 +260,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request, key string
 		return
 	}
 
-	isLocal, targetNode := s.shouldRouteLocally(key)
+	isLocal, _, targetNode := s.shouldRouteLocally(key)
 
 	if isLocal {
 		go s.deleteValue(key)

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/habetuz/qad/config"
+	"github.com/habetuz/qad/storage"
 	"github.com/rs/zerolog"
 )
 
@@ -20,7 +21,7 @@ func TestNewManager(t *testing.T) {
 	logger := zerolog.Nop()
 
 	// Create manager
-	manager, err := NewManager(cfg, logger)
+	manager, err := NewManager(cfg, logger, storage.NewNoEvictionStorage())
 	if err != nil {
 		t.Fatalf("NewManager failed: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestManager_Join_NoSeeds(t *testing.T) {
 		SeedNodes:   []string{}, // No seeds = new cluster
 	}
 
-	manager, err := NewManager(cfg, zerolog.Nop())
+	manager, err := NewManager(cfg, zerolog.Nop(), storage.NewNoEvictionStorage())
 	if err != nil {
 		t.Fatalf("NewManager failed: %v", err)
 	}
@@ -85,7 +86,7 @@ func TestManager_GetLocalNodeName(t *testing.T) {
 		SeedNodes:   []string{},
 	}
 
-	manager, err := NewManager(cfg, zerolog.Nop())
+	manager, err := NewManager(cfg, zerolog.Nop(), storage.NewNoEvictionStorage())
 	if err != nil {
 		t.Fatalf("NewManager failed: %v", err)
 	}
@@ -105,7 +106,7 @@ func TestManager_GetHashRing(t *testing.T) {
 		SeedNodes:   []string{},
 	}
 
-	manager, err := NewManager(cfg, zerolog.Nop())
+	manager, err := NewManager(cfg, zerolog.Nop(), storage.NewNoEvictionStorage())
 	if err != nil {
 		t.Fatalf("NewManager failed: %v", err)
 	}
@@ -126,7 +127,7 @@ func TestManager_GetGRPCPool(t *testing.T) {
 		SeedNodes:   []string{},
 	}
 
-	manager, err := NewManager(cfg, zerolog.Nop())
+	manager, err := NewManager(cfg, zerolog.Nop(), storage.NewNoEvictionStorage())
 	if err != nil {
 		t.Fatalf("NewManager failed: %v", err)
 	}
@@ -147,7 +148,7 @@ func TestManager_HealthCheck(t *testing.T) {
 		SeedNodes:   []string{},
 	}
 
-	manager, err := NewManager(cfg, zerolog.Nop())
+	manager, err := NewManager(cfg, zerolog.Nop(), storage.NewNoEvictionStorage())
 	if err != nil {
 		t.Fatalf("NewManager failed: %v", err)
 	}
@@ -184,7 +185,7 @@ func TestManager_Leave(t *testing.T) {
 		SeedNodes:   []string{},
 	}
 
-	manager, err := NewManager(cfg, zerolog.Nop())
+	manager, err := NewManager(cfg, zerolog.Nop(), storage.NewNoEvictionStorage())
 	if err != nil {
 		t.Fatalf("NewManager failed: %v", err)
 	}

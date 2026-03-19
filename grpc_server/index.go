@@ -53,19 +53,17 @@ func (server *Server) Write(ctx context.Context, kvPair *proto_gen.KeyValuePair)
 	if kvPair == nil {
 		return nil, status.Error(codes.InvalidArgument, "key-value pair cannot be nil")
 	}
-	if kvPair.Key == nil || kvPair.Key.Key == "" {
+	if kvPair.Key == "" {
 		return nil, status.Error(codes.InvalidArgument, "key cannot be empty")
 	}
 	if kvPair.Value == nil {
 		return nil, status.Error(codes.InvalidArgument, "value cannot be nil")
 	}
-
-	var fullValue []byte
-	for _, chunk := range kvPair.Value.Payload {
-		fullValue = append(fullValue, chunk...)
+	if kvPair.Hash == 0 {
+		return nil, status.Error(codes.InvalidArgument, "hash cannot be 0")
 	}
 
-	server.storage.Write(kvPair.Key.Key, fullValue)
+	server.storage.Write(kvPair.Key, kvPair.Hash, kvPair.Value)
 
 	return &proto_gen.Void{}, nil
 }

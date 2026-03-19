@@ -59,14 +59,9 @@ func (c *ConsistentHashRing) RemoveNode(name string) {
 	c.ring = slices.DeleteFunc(c.ring, func(vn virtualNode) bool { return vn.name == name })
 }
 
-func (c *ConsistentHashRing) NodeOf(key string) string {
+func (c *ConsistentHashRing) NodeOf(key string) (uint64, string) {
 	hash := xxhash.Sum64String(key)
-	return c.NodeOfDirect(hash)
-}
-
-// GetNode is an alias for NodeOf to satisfy the httpserver.HashRing interface.
-func (c *ConsistentHashRing) GetNode(key string) string {
-	return c.NodeOf(key)
+	return hash, c.NodeOfDirect(hash)
 }
 
 func (c *ConsistentHashRing) NodeOfDirect(hash uint64) string {
@@ -82,6 +77,9 @@ func (c *ConsistentHashRing) NodeOfDirect(hash uint64) string {
 		i = len(c.ring) - 1
 	}
 	return c.ring[i].name
+}
+
+func (c *ConsistentHashRing) KeysOfNode() {
 }
 
 func sortInto(slice []virtualNode, node virtualNode) []virtualNode {

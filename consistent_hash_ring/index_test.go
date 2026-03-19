@@ -114,9 +114,9 @@ func TestNodeOf_Consistency(t *testing.T) {
 	ring.AddNode("c")
 
 	key := "some-cache-key"
-	first := ring.NodeOf(key)
+	_, first := ring.NodeOf(key)
 	for range 100 {
-		if got := ring.NodeOf(key); got != first {
+		if _, got := ring.NodeOf(key); got != first {
 			t.Errorf("NodeOf is not consistent: got %q, want %q", got, first)
 		}
 	}
@@ -133,7 +133,8 @@ func TestNodeOf_DistributesAcrossNodes(t *testing.T) {
 
 	counts := map[string]int{}
 	for i := range 300 {
-		counts[ring.NodeOf(fmt.Sprintf("key-%d", i))]++
+		_, node := ring.NodeOf(fmt.Sprintf("key-%d", i))
+		counts[node]++
 	}
 
 	if len(counts) != 3 {
@@ -256,7 +257,7 @@ func TestRemoveNode_KeyRedistribution(t *testing.T) {
 	var keysOnB []string
 	for i := 0; i < 1000; i++ {
 		key := fmt.Sprintf("key-%d", i)
-		if ring.NodeOf(key) == "nodeB" {
+		if _, node := ring.NodeOf(key); node == "nodeB" {
 			keysOnB = append(keysOnB, key)
 			if len(keysOnB) >= 10 {
 				break
@@ -271,7 +272,7 @@ func TestRemoveNode_KeyRedistribution(t *testing.T) {
 	ring.RemoveNode("nodeB")
 
 	for _, key := range keysOnB {
-		node := ring.NodeOf(key)
+		_, node := ring.NodeOf(key)
 		if node == "nodeB" {
 			t.Errorf("key %q still maps to nodeB after removal", key)
 		}

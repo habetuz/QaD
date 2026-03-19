@@ -86,7 +86,7 @@ func main() {
 	//   - ConsistentHashRing (for key distribution)
 	//   - GRPCPool (for node-to-node connections)
 	//   - EventDelegate (for join/leave/update events)
-	clusterMgr, err := cluster.NewManager(cfg, log.Logger)
+	clusterMgr, err := cluster.NewManager(cfg, log.Logger, store)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create cluster manager")
 	}

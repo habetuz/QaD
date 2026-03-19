@@ -10,8 +10,9 @@ service Communication {
 }
 
 message KeyValuePair {
-  Key   key   = 1;
-  Value value = 2;
+  string key   = 1;
+  uint64 hash  = 2;
+  bytes  value = 3;
 }
 
 message Key {

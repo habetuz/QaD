@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,18 +23,21 @@ type mockHashRing struct {
 	nodeAddr string // Address to return for all keys
 }
 
-// GetLocalNode implements [HashRing].
-func (m *mockHashRing) GetLocalNode() string {
-	panic("unimplemented")
+func testHash(key string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(key))
+	return h.Sum64()
 }
 
 // GetNodes implements [HashRing].
 func (m *mockHashRing) GetNodes() []string {
-	panic("unimplemented")
+	return []string{m.nodeAddr}
 }
 
-func (m *mockHashRing) GetNode(key string) string {
-	return m.nodeAddr
+func (m *mockHashRing) NodeOf(key string) (uint64, string) {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(key))
+	return h.Sum64(), m.nodeAddr
 }
 
 // mockGRPCPool is a test implementation of GRPCPool.
@@ -83,13 +87,13 @@ func (m *mockGRPCClient) Write(ctx context.Context, kvPair *proto_gen.KeyValuePa
 func TestHandleGet_Local(t *testing.T) {
 	// Setup
 	store := storage.NewNoEvictionStorage()
-	store.Write("test-key", []byte("test-value"))
+	store.Write("test-key", testHash("test-key"), []byte("test-value"))
 
 	hashRing := &mockHashRing{nodeAddr: "localhost:8080"}
 	server := NewServer(store, hashRing, nil, "localhost:8080")
 
 	// Create request
-	req := httptest.NewRequest(http.MethodGet, "/test-key", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/test-key", nil)
 	w := httptest.NewRecorder()
 
 	// Execute
@@ -132,7 +136,7 @@ func TestHandleGet_Remote(t *testing.T) {
 	server := NewServer(store, hashRing, pool, "localhost:8080")
 
 	// Create request
-	req := httptest.NewRequest(http.MethodGet, "/remote-key", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/remote-key", nil)
 	w := httptest.NewRecorder()
 
 	// Execute
@@ -156,7 +160,7 @@ func TestHandleGet_NotFound(t *testing.T) {
 	hashRing := &mockHashRing{nodeAddr: "localhost:8080"}
 	server := NewServer(store, hashRing, nil, "localhost:8080")
 
-	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/nonexistent", nil)
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -182,7 +186,7 @@ func TestHandleGet_RemoteNotFound(t *testing.T) {
 
 	server := NewServer(store, hashRing, pool, "localhost:8080")
 
-	req := httptest.NewRequest(http.MethodGet, "/missing", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/missing", nil)
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -199,7 +203,7 @@ func TestHandlePost_Local(t *testing.T) {
 	hashRing := &mockHashRing{nodeAddr: "localhost:8080"}
 	server := NewServer(store, hashRing, nil, "localhost:8080")
 
-	req := httptest.NewRequest(http.MethodPost, "/test-key", bytes.NewReader([]byte("test-value")))
+	req := httptest.NewRequest(http.MethodPost, "/api/test-key", bytes.NewReader([]byte("test-value")))
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -230,16 +234,12 @@ func TestHandlePost_Remote(t *testing.T) {
 	mockClient := &mockGRPCClient{
 		writeFunc: func(ctx context.Context, kvPair *proto_gen.KeyValuePair) (*proto_gen.Void, error) {
 			writeCalled = true
-			if kvPair.Key.Key != "remote-key" {
-				t.Errorf("Expected key 'remote-key', got '%s'", kvPair.Key.Key)
+			if kvPair.Key != "remote-key" {
+				t.Errorf("Expected key 'remote-key', got '%s'", kvPair.Key)
 			}
-			// Concatenate payload
-			var value []byte
-			for _, chunk := range kvPair.Value.Payload {
-				value = append(value, chunk...)
-			}
-			if string(value) != "remote-value" {
-				t.Errorf("Expected value 'remote-value', got '%s'", value)
+
+			if string(kvPair.Value) != "remote-value" {
+				t.Errorf("Expected value 'remote-value', got '%s'", kvPair.Value)
 			}
 			return &proto_gen.Void{}, nil
 		},
@@ -248,7 +248,7 @@ func TestHandlePost_Remote(t *testing.T) {
 
 	server := NewServer(store, hashRing, pool, "localhost:8080")
 
-	req := httptest.NewRequest(http.MethodPost, "/remote-key", bytes.NewReader([]byte("remote-value")))
+	req := httptest.NewRequest(http.MethodPost, "/api/remote-key", bytes.NewReader([]byte("remote-value")))
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -269,12 +269,12 @@ func TestHandlePost_Remote(t *testing.T) {
 // TestHandleDelete_Local verifies DELETE requests for local keys.
 func TestHandleDelete_Local(t *testing.T) {
 	store := storage.NewNoEvictionStorage()
-	store.Write("test-key", []byte("test-value"))
+	store.Write("test-key", testHash("test-key"), []byte("test-value"))
 
 	hashRing := &mockHashRing{nodeAddr: "localhost:8080"}
 	server := NewServer(store, hashRing, nil, "localhost:8080")
 
-	req := httptest.NewRequest(http.MethodDelete, "/test-key", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/test-key", nil)
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -300,7 +300,7 @@ func TestHandleDelete_Remote(t *testing.T) {
 	hashRing := &mockHashRing{nodeAddr: "remote:8080"}
 	server := NewServer(store, hashRing, nil, "localhost:8080")
 
-	req := httptest.NewRequest(http.MethodDelete, "/remote-key", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/remote-key", nil)
 	w := httptest.NewRecorder()
 
 	server.ServeHTTP(w, req)
@@ -311,16 +311,17 @@ func TestHandleDelete_Remote(t *testing.T) {
 	}
 }
 
-// TestShouldRouteLocally_NoHashRing verifies non-distributed mode.
+// TestShouldRouteLocally_WithHashRing verifies local routing with hash ring.
 func TestShouldRouteLocally_NoHashRing(t *testing.T) {
-	server := NewServer(storage.NewNoEvictionStorage(), nil, nil, "localhost:8080")
+	hashRing := &mockHashRing{nodeAddr: "localhost:8080"}
+	server := NewServer(storage.NewNoEvictionStorage(), hashRing, nil, "localhost:8080")
 
-	isLocal, target := server.shouldRouteLocally("any-key")
+	isLocal, _, target := server.shouldRouteLocally("any-key")
 	if !isLocal {
-		t.Error("Expected local routing when hash ring is nil")
+		t.Error("Expected local routing when hash ring resolves to self")
 	}
-	if target != "" {
-		t.Errorf("Expected empty target, got '%s'", target)
+	if target != "localhost:8080" {
+		t.Errorf("Expected target 'localhost:8080', got '%s'", target)
 	}
 }
 
@@ -329,12 +330,12 @@ func TestShouldRouteLocally_LocalKey(t *testing.T) {
 	hashRing := &mockHashRing{nodeAddr: "localhost:8080"}
 	server := NewServer(storage.NewNoEvictionStorage(), hashRing, nil, "localhost:8080")
 
-	isLocal, target := server.shouldRouteLocally("test-key")
+	isLocal, _, target := server.shouldRouteLocally("test-key")
 	if !isLocal {
 		t.Error("Expected local routing when target matches self")
 	}
-	if target != "" {
-		t.Errorf("Expected empty target, got '%s'", target)
+	if target != "localhost:8080" {
+		t.Errorf("Expected target 'localhost:8080', got '%s'", target)
 	}
 }
 
@@ -343,7 +344,7 @@ func TestShouldRouteLocally_RemoteKey(t *testing.T) {
 	hashRing := &mockHashRing{nodeAddr: "remote:8080"}
 	server := NewServer(storage.NewNoEvictionStorage(), hashRing, nil, "localhost:8080")
 
-	isLocal, target := server.shouldRouteLocally("test-key")
+	isLocal, _, target := server.shouldRouteLocally("test-key")
 	if isLocal {
 		t.Error("Expected remote routing when target doesn't match self")
 	}

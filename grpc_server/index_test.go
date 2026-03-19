@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"context"
+	"hash/fnv"
 	"net"
 	"testing"
 
@@ -17,6 +18,12 @@ import (
 // bufSize is the size of the in-memory buffer for the bufconn listener.
 // This simulates a network connection without using actual TCP sockets.
 const bufSize = 1024 * 1024
+
+func testHash(key string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(key))
+	return h.Sum64()
+}
 
 // setupTestServer creates an in-memory gRPC server for testing.
 // It uses bufconn to avoid binding to real network ports.
@@ -87,7 +94,7 @@ func TestRead_Success(t *testing.T) {
 	// Pre-populate storage with test data
 	testKey := "test-key"
 	testValue := []byte("test-value")
-	store.Write(testKey, testValue)
+	store.Write(testKey, testHash(testKey), testValue)
 
 	// Execute the Read RPC
 	ctx := context.Background()
@@ -173,8 +180,9 @@ func TestWrite_Success(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := client.Write(ctx, &proto_gen.KeyValuePair{
-		Key:   &proto_gen.Key{Key: testKey},
-		Value: &proto_gen.Value{Payload: [][]byte{testValue}},
+		Key:   testKey,
+		Hash:  testHash(testKey),
+		Value: testValue,
 	})
 
 	// Verify the write succeeded
@@ -192,31 +200,29 @@ func TestWrite_Success(t *testing.T) {
 	}
 }
 
-// TestWrite_MultipleChunks verifies that Write handles chunked data correctly.
+// TestWrite_Value verifies that Write stores raw byte values correctly.
 func TestWrite_MultipleChunks(t *testing.T) {
 	conn, store, cleanup := setupTestServer(t)
 	defer cleanup()
 
 	client := proto_gen.NewCommunicationClient(conn)
 
-	// Write data split across multiple chunks
+	// Write raw bytes
 	testKey := "chunked-key"
-	chunk1 := []byte("hello-")
-	chunk2 := []byte("world")
+	value := []byte("hello-world")
 	ctx := context.Background()
 
 	_, err := client.Write(ctx, &proto_gen.KeyValuePair{
-		Key: &proto_gen.Key{Key: testKey},
-		Value: &proto_gen.Value{
-			Payload: [][]byte{chunk1, chunk2},
-		},
+		Key:   testKey,
+		Hash:  testHash(testKey),
+		Value: value,
 	})
 
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 
-	// Verify the chunks were concatenated
+	// Verify the value was stored
 	storedValue := store.Read(testKey)
 	expected := "hello-world"
 	if string(storedValue) != expected {
@@ -233,8 +239,9 @@ func TestWrite_EmptyKey(t *testing.T) {
 
 	ctx := context.Background()
 	_, err := client.Write(ctx, &proto_gen.KeyValuePair{
-		Key:   &proto_gen.Key{Key: ""},
-		Value: &proto_gen.Value{Payload: [][]byte{[]byte("value")}},
+		Key:   "",
+		Hash:  testHash(""),
+		Value: []byte("value"),
 	})
 
 	st, ok := status.FromError(err)
@@ -256,8 +263,33 @@ func TestWrite_NilValue(t *testing.T) {
 
 	ctx := context.Background()
 	_, err := client.Write(ctx, &proto_gen.KeyValuePair{
-		Key:   &proto_gen.Key{Key: "test-key"},
+		Key:   "test-key",
+		Hash:  testHash("test-key"),
 		Value: nil,
+	})
+
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("Expected gRPC status error, got: %v", err)
+	}
+
+	if st.Code() != codes.InvalidArgument {
+		t.Errorf("Expected InvalidArgument code, got %v", st.Code())
+	}
+}
+
+// TestWrite_ZeroHash verifies that Write rejects zero hashes.
+func TestWrite_ZeroHash(t *testing.T) {
+	conn, _, cleanup := setupTestServer(t)
+	defer cleanup()
+
+	client := proto_gen.NewCommunicationClient(conn)
+
+	ctx := context.Background()
+	_, err := client.Write(ctx, &proto_gen.KeyValuePair{
+		Key:   "test-key",
+		Hash:  0,
+		Value: []byte("value"),
 	})
 
 	st, ok := status.FromError(err)

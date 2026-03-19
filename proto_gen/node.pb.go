@@ -23,8 +23,9 @@ const (
 
 type KeyValuePair struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Key           *Key                   `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
-	Value         *Value                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Hash          uint64                 `protobuf:"varint,2,opt,name=hash,proto3" json:"hash,omitempty"`
+	Value         []byte                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -59,14 +60,21 @@ func (*KeyValuePair) Descriptor() ([]byte, []int) {
 	return file_proto_node_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *KeyValuePair) GetKey() *Key {
+func (x *KeyValuePair) GetKey() string {
 	if x != nil {
 		return x.Key
 	}
-	return nil
+	return ""
 }
 
-func (x *KeyValuePair) GetValue() *Value {
+func (x *KeyValuePair) GetHash() uint64 {
+	if x != nil {
+		return x.Hash
+	}
+	return 0
+}
+
+func (x *KeyValuePair) GetValue() []byte {
 	if x != nil {
 		return x.Value
 	}
@@ -201,10 +209,11 @@ var File_proto_node_proto protoreflect.FileDescriptor
 
 const file_proto_node_proto_rawDesc = "" +
 	"\n" +
-	"\x10proto/node.proto\x12\x04node\"N\n" +
-	"\fKeyValuePair\x12\x1b\n" +
-	"\x03key\x18\x01 \x01(\v2\t.node.KeyR\x03key\x12!\n" +
-	"\x05value\x18\x02 \x01(\v2\v.node.ValueR\x05value\"\x17\n" +
+	"\x10proto/node.proto\x12\x04node\"J\n" +
+	"\fKeyValuePair\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x12\n" +
+	"\x04hash\x18\x02 \x01(\x04R\x04hash\x12\x14\n" +
+	"\x05value\x18\x03 \x01(\fR\x05value\"\x17\n" +
 	"\x03Key\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\"!\n" +
 	"\x05Value\x12\x18\n" +
@@ -236,17 +245,15 @@ var file_proto_node_proto_goTypes = []any{
 	(*Void)(nil),         // 3: node.Void
 }
 var file_proto_node_proto_depIdxs = []int32{
-	1, // 0: node.KeyValuePair.key:type_name -> node.Key
-	2, // 1: node.KeyValuePair.value:type_name -> node.Value
-	1, // 2: node.Communication.Read:input_type -> node.Key
-	0, // 3: node.Communication.Write:input_type -> node.KeyValuePair
-	2, // 4: node.Communication.Read:output_type -> node.Value
-	3, // 5: node.Communication.Write:output_type -> node.Void
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	1, // 0: node.Communication.Read:input_type -> node.Key
+	0, // 1: node.Communication.Write:input_type -> node.KeyValuePair
+	2, // 2: node.Communication.Read:output_type -> node.Value
+	3, // 3: node.Communication.Write:output_type -> node.Void
+	2, // [2:4] is the sub-list for method output_type
+	0, // [0:2] is the sub-list for method input_type
+	0, // [0:0] is the sub-list for extension type_name
+	0, // [0:0] is the sub-list for extension extendee
+	0, // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_proto_node_proto_init() }

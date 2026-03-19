@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	consistenthashring "github.com/habetuz/qad/consistent_hash_ring"
+	"github.com/habetuz/qad/storage"
 	"github.com/hashicorp/memberlist"
 	"github.com/rs/zerolog"
 )
@@ -13,6 +14,7 @@ type EventDelegate struct {
 	logger zerolog.Logger
 
 	hashRing *consistenthashring.ConsistentHashRing
+	store storage.Storage
 
 	grpcPool *GRPCPool
 
@@ -25,6 +27,7 @@ type EventDelegate struct {
 func NewEventDelegate(
 	logger zerolog.Logger,
 	hashRing *consistenthashring.ConsistentHashRing,
+	store storage.Storage,
 	grpcPool *GRPCPool,
 	localNodeName string,
 	grpcPort uint32,
@@ -32,6 +35,7 @@ func NewEventDelegate(
 	return &EventDelegate{
 		logger:        logger,
 		hashRing:      hashRing,
+		store: store,
 		grpcPool:      grpcPool,
 		localNodeName: localNodeName,
 		grpcPort:      grpcPort,
@@ -97,6 +101,10 @@ func (e *EventDelegate) NotifyJoin(node *memberlist.Node) {
 			Str("grpc_addr", meta.GRPCAddr).
 			Msg("Failed to add gRPC connection for joined node")
 	}
+
+	// Finding and transfering data that belongs to new node
+	//keys := e.store.ListKeys()
+
 }
 
 // NotifyLeave is called by memberlist when a node gracefully leaves the cluster.

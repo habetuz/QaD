@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"encoding/json"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -61,11 +62,13 @@ type mockClusterInfoHashRing struct {
 	localNode string
 }
 
-func (m *mockClusterInfoHashRing) GetNode(key string) string {
+func (m *mockClusterInfoHashRing) NodeOf(key string) (uint64, string) {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(key))
 	if len(m.nodes) == 0 {
-		return ""
+		return h.Sum64(), ""
 	}
-	return m.nodes[0]
+	return h.Sum64(), m.nodes[0]
 }
 
 func (m *mockClusterInfoHashRing) GetNodes() []string {

@@ -11,6 +11,7 @@ var _ Storage = (*FIFOStorage)(nil)
 type FIFOStorage struct {
 	mu      sync.Mutex
 	storage map[string][]byte
+	hashes  map[string]uint64
 	order   []string // insertion order
 	maxSize int
 	curSize int
@@ -19,6 +20,7 @@ type FIFOStorage struct {
 func NewFIFOStorage(maxSize int) *FIFOStorage {
 	return &FIFOStorage{
 		storage: make(map[string][]byte),
+		hashes:  make(map[string]uint64),
 		maxSize: maxSize,
 	}
 }
@@ -35,7 +37,7 @@ func (s *FIFOStorage) Read(key string) []byte {
 }
 
 // Write implements [Storage].
-func (s *FIFOStorage) Write(key string, value []byte) {
+func (s *FIFOStorage) Write(key string, hash uint64, value []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -53,6 +55,7 @@ func (s *FIFOStorage) Write(key string, value []byte) {
 	s.order = append(s.order, key)
 
 	s.storage[key] = value
+	s.hashes[key] = hash
 	s.curSize += len(value)
 
 	// Evict oldest entries until we're within the size limit.
@@ -61,6 +64,7 @@ func (s *FIFOStorage) Write(key string, value []byte) {
 		s.order = s.order[1:]
 		s.curSize -= len(s.storage[oldest])
 		delete(s.storage, oldest)
+		delete(s.hashes, oldest)
 		log.Debug().Str("key", oldest).Msg("FIFO evicted key")
 	}
 
@@ -75,6 +79,7 @@ func (s *FIFOStorage) Delete(key string) {
 	if old, ok := s.storage[key]; ok {
 		s.curSize -= len(old)
 		delete(s.storage, key)
+		delete(s.hashes, key)
 		for i, k := range s.order {
 			if k == key {
 				s.order = append(s.order[:i], s.order[i+1:]...)
@@ -83,4 +88,9 @@ func (s *FIFOStorage) Delete(key string) {
 		}
 	}
 	log.Debug().Str("key", key).Msg("FIFO deleted key")
+}
+
+// ListKeys implements [Storage].
+func (s *FIFOStorage) ListKeys() map[string]uint64 {
+	return s.hashes
 }

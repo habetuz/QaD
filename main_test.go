@@ -73,8 +73,9 @@ func TestWrite(t *testing.T) {
 
 	// Write a value
 	_, err := client.Write(context.Background(), &proto_gen.KeyValuePair{
-		Key:   &proto_gen.Key{Key: "test-key"},
-		Value: &proto_gen.Value{Payload: [][]byte{[]byte("test-value")}},
+		Key:   "test-key",
+		Hash: 1234,
+		Value: []byte("test-value"),
 	})
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
