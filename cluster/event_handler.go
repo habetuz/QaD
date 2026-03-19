@@ -1,9 +1,11 @@
 package cluster
 
 import (
+	"context"
 	"fmt"
 
 	consistenthashring "github.com/habetuz/qad/consistent_hash_ring"
+	"github.com/habetuz/qad/proto_gen"
 	"github.com/habetuz/qad/storage"
 	"github.com/hashicorp/memberlist"
 	"github.com/rs/zerolog"
@@ -14,7 +16,7 @@ type EventDelegate struct {
 	logger zerolog.Logger
 
 	hashRing *consistenthashring.ConsistentHashRing
-	store storage.Storage
+	store    storage.Storage
 
 	grpcPool *GRPCPool
 
@@ -35,7 +37,7 @@ func NewEventDelegate(
 	return &EventDelegate{
 		logger:        logger,
 		hashRing:      hashRing,
-		store: store,
+		store:         store,
 		grpcPool:      grpcPool,
 		localNodeName: localNodeName,
 		grpcPort:      grpcPort,
@@ -103,7 +105,37 @@ func (e *EventDelegate) NotifyJoin(node *memberlist.Node) {
 	}
 
 	// Finding and transfering data that belongs to new node
-	//keys := e.store.ListKeys()
+	keys := e.store.ListKeys()
+
+	for key, hash := range keys {
+		targetNode := e.hashRing.NodeOfDirect(hash)
+		if e.localNodeName == targetNode {
+			// Value should still be stored on this node
+			continue
+		}
+
+		// Write value to new node and delete from local store
+		client, err := e.grpcPool.GetClient(targetNode)
+		if err != nil {
+			e.logger.Error().Err(err).Str("node", targetNode).Msg("Failed to retrieve client for node")
+			return
+		}
+
+		value := e.store.Read(key)
+
+		if _, err = client.Write(context.Background(), &proto_gen.KeyValuePair{
+			Key:   key,
+			Hash:  hash,
+			Value: value,
+		}); err != nil {
+			e.logger.Error().Err(err).Str("node", targetNode).Str("key", key).Msg("Failed to transfer key to new node")
+			return
+		}
+
+		e.store.Delete(key)
+
+		e.logger.Debug().Str("node", targetNode).Str("key", key).Msg("Transfered key to new node")
+	}
 
 }
 
