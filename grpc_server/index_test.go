@@ -41,7 +41,7 @@ func setupTestServer(t *testing.T) (*grpc.ClientConn, storage.Storage, func()) {
 
 	// Create the gRPC server instance
 	grpcServer := grpc.NewServer()
-	
+
 	// Register our service implementation
 	proto_gen.RegisterCommunicationServer(grpcServer, NewServer(store))
 
@@ -56,9 +56,9 @@ func setupTestServer(t *testing.T) (*grpc.ClientConn, storage.Storage, func()) {
 	// Create a client connection to our in-memory server
 	// The dialer intercepts connection attempts and routes to bufconn
 	conn, err := grpc.NewClient(
-		"passthrough://bufnet",  // Dummy address (not used)
+		"passthrough://bufnet", // Dummy address (not used)
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
-			return lis.Dial()  // Use bufconn instead of real TCP
+			return lis.Dial() // Use bufconn instead of real TCP
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
@@ -171,7 +171,7 @@ func TestWrite_Success(t *testing.T) {
 	testKey := "write-key"
 	testValue := []byte("write-value")
 	ctx := context.Background()
-	
+
 	_, err := client.Write(ctx, &proto_gen.KeyValuePair{
 		Key:   &proto_gen.Key{Key: testKey},
 		Value: &proto_gen.Value{Payload: [][]byte{testValue}},
@@ -204,7 +204,7 @@ func TestWrite_MultipleChunks(t *testing.T) {
 	chunk1 := []byte("hello-")
 	chunk2 := []byte("world")
 	ctx := context.Background()
-	
+
 	_, err := client.Write(ctx, &proto_gen.KeyValuePair{
 		Key: &proto_gen.Key{Key: testKey},
 		Value: &proto_gen.Value{

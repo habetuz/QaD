@@ -198,8 +198,8 @@ func getOutboundIP() string {
 // This is useful for monitoring and debugging.
 //
 // Returns:
-//   - map[string]interface{}: Health information
-func (m *Manager) HealthCheck() map[string]interface{} {
+//   - map[string]any: Health information
+func (m *Manager) HealthCheck() map[string]any {
 	members := m.GetMembers()
 
 	// Extract member information
@@ -212,7 +212,7 @@ func (m *Manager) HealthCheck() map[string]interface{} {
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"node_name":       m.config.NodeName,
 		"member_count":    len(members),
 		"members":         memberInfo,
