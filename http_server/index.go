@@ -18,6 +18,7 @@ import (
 
 type HashRing interface {
 	GetNode(key string) string
+	GetNodes() []string
 }
 
 type GRPCPool interface {

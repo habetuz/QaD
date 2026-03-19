@@ -22,6 +22,16 @@ type mockHashRing struct {
 	nodeAddr string // Address to return for all keys
 }
 
+// GetLocalNode implements [HashRing].
+func (m *mockHashRing) GetLocalNode() string {
+	panic("unimplemented")
+}
+
+// GetNodes implements [HashRing].
+func (m *mockHashRing) GetNodes() []string {
+	panic("unimplemented")
+}
+
 func (m *mockHashRing) GetNode(key string) string {
 	return m.nodeAddr
 }

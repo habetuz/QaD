@@ -5,12 +5,6 @@ import (
 	"net/http"
 )
 
-type ClusterInfo interface {
-	GetNodes() []string
-
-	GetLocalNode() string
-}
-
 // HealthHandler handles /health endpoint for liveness checks.
 func (s *Server) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -49,21 +43,11 @@ func (s *Server) ClusterHandler(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	clusterInfo, ok := s.hashRing.(ClusterInfo)
-	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
-			"status": "cluster_info_unavailable",
-			"node":   s.selfAddr,
-		})
-		return
-	}
 
-	nodes := clusterInfo.GetNodes()
+	nodes := s.hashRing.GetNodes()
 
 	status := ClusterStatus{
-		LocalNode:  clusterInfo.GetLocalNode(),
+		LocalNode:  s.selfAddr,
 		TotalNodes: len(nodes),
 		Nodes:      nodes,
 	}

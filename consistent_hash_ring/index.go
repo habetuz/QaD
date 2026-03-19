@@ -27,6 +27,10 @@ func NewRing(virtualNodes int) *ConsistentHashRing {
 	}
 }
 
+func (c *ConsistentHashRing) GetNodes() []string {
+	return c.nodes
+}
+
 func (c *ConsistentHashRing) AddNode(name string) {
 	if slices.Contains(c.nodes, name) {
 		panic("Duplicate entry into node list")
