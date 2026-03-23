@@ -41,6 +41,17 @@
             protobuf_29
             protoc-gen-go
             protoc-gen-go-grpc
+
+            (python3.withPackages (ps: with ps; [
+              jupyterlab
+              numpy
+              pandas
+              matplotlib
+              seaborn
+              plotly
+              scipy
+              scienceplots
+            ]))
           ];
 
           env = {

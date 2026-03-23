@@ -28,8 +28,14 @@ func main() {
 	// ============================================================
 	// Initialize structured logging with console output.
 	// This should be first so all subsequent code can log properly.
+	// Disable colors when output is redirected (e.g., to log files).
+	stdoutInfo, err := os.Stdout.Stat()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to inspect stdout")
+	}
+	noColor := (stdoutInfo.Mode()&os.ModeCharDevice) == 0 || os.Getenv("NO_COLOR") != ""
 	log.Logger = log.Output(
-		zerolog.ConsoleWriter{Out: os.Stdout, NoColor: false},
+		zerolog.ConsoleWriter{Out: os.Stdout, NoColor: noColor},
 	)
 
 	// ============================================================
